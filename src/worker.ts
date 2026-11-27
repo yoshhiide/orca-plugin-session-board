@@ -301,13 +301,17 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) &&
         JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target)
       const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal))
-      if (typeof result === 'string') return {opened:result === 'read-only',reason:result}
+      if (typeof result === 'string') {
+        if (result !== 'read-only' && !signal.aborted) orca.log('board.reply: ' + result)
+        return {opened:result === 'read-only',reason:result}
+      }
       return {opened:result}
     } catch (error) {
       orca.log(label(copy('Could not verify the reply destination in Orca: ', '標準の回答先を照合できませんでした: ')) +
         (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : 'navigation_failed'))
       return {opened:false}
     } finally {
+      if (signal.aborted) orca.log('board.reply: cancelled')
       replying = false
     }
   })

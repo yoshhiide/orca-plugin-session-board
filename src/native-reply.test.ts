@@ -14,9 +14,10 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false} = {}) {
   const presses: string[] = []
   let page = 0
+  let groupExpanded = !collapsedGroup
   let onTarget = !otherBot
   let opens = 0
   const openHome = async () => {
@@ -37,7 +38,8 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
       assert.equal(args[args.indexOf('--action') + 1], 'AXPress')
       assert.equal(args.includes('--restore-window'), false)
       presses.push(index)
-      page++
+      if (index === '57') groupExpanded = true
+      else page++
       return {action:{path:'accessibility', delivery:'background', targetWindowId:1}}
     }
     return {snapshot:{
@@ -52,9 +54,16 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
           '  5 container',
           '   53 text 見本Bot',
           '   54 pop up button Edit bot picture',
-          '   55 content list ' + (['Done','Canceled'].includes(status) ? 'Closed' : status),
-          '    6 button #9 青の確認 now',
-          '    7 button #8 青の確認 now'
+          ...(collapsedGroup ? [
+            '   58 container',
+            '    57 button ' + (groupExpanded ? '(expanded)' : status + ' 2'),
+            '    59 heading ' + status
+          ] : []),
+          ...(groupExpanded ? [
+            '   55 content list ' + (['Done','Canceled'].includes(status) ? 'Closed' : status),
+            '    6 button #9 青の確認 now',
+            '    7 button #8 青の確認 now'
+          ] : [])
         ] : [
           '  8 container' + (anonymousHome ? '' : ' ホーム'),
           '   56 button ホーム',
@@ -104,6 +113,13 @@ test('opens the exact Bot Home before replying, even with no Bot rows', async ()
     assert.equal(opens(), 1)
     assert.deepEqual(presses, ['3', '7', focus])
   }
+})
+
+test('expands a collapsed Planned group whose button announces the item count', async () => {
+  const {run, current, presses, openHome} = fixture({otherBot:true, status:'Planned', collapsedGroup:true})
+  const {bot,number,title} = target
+  assert.equal(await nativeReply(run, {bot,number,title,state:'planned',snoozed:false}, current, new AbortController().signal, openHome), true)
+  assert.deepEqual(presses, ['3', '57', '7', '50'])
 })
 
 test('does not touch the other Bot when its Home cannot be replaced and verified', async () => {

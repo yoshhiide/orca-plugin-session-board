@@ -1054,15 +1054,19 @@ function itemGroups(target) {
   if (target.state === "done" || target.state === "cancelled") return ["Closed"];
   return [...statusNames[target.state], "Stale"];
 }
-function listControl(state, target, label) {
+function listControl(state, target, matches) {
   const panel = homePanel(state, target.bot);
   if (!panel) return;
   for (const group of itemGroups(target)) {
     const heading = one(state.nodes.filter((node) => node.label === "heading " + group && under(node, panel)));
     if (!heading?.parent?.parent) continue;
-    const control = one(state.nodes.filter((node) => (node.parent === heading.parent || node.parent === heading.parent.parent) && label.test(node.label)));
+    const control = one(state.nodes.filter((node) => (node.parent === heading.parent || node.parent === heading.parent.parent) && matches(node.label, group)));
     if (control) return control;
   }
+}
+function collapsedGroup(label, group) {
+  const prefix = "button " + group + " ";
+  return label === "button (collapsed)" || label.startsWith(prefix) && /^[0-9]+$/.test(label.slice(prefix.length));
 }
 function exactQuestion(state, scope, target) {
   const names = ["ja-JP", "en-US", Intl.DateTimeFormat().resolvedOptions().locale].map((locale) => "container " + target.bot + ", " + new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "long" }).format(target.at));
@@ -1102,7 +1106,7 @@ async function nativeReply(run, target, stillCurrent, signal, openHome) {
   if (!list(permission.permissions).some((entry) => entry.id === "accessibility" && entry.status === "granted")) return "accessibility-required";
   const windows = list((await run("computer", "list-windows", "--app", app)).windows);
   const window = one(windows.filter((frame) => optional(frame.app).bundleId === app));
-  if (!window || typeof window.id !== "number" || window.isOffscreen !== false || window.isMinimized !== false) return false;
+  if (!window || typeof window.id !== "number" || window.isOffscreen !== false || window.isMinimized !== false) return "window-unavailable";
   const windowId = window.id;
   const args = ["--app", app, "--window-id", String(windowId), "--session", "board-reply-" + randomUUID(), "--no-screenshot"];
   const read = async () => parse(await run("computer", "get-app-state", ...args), windowId);
@@ -1152,15 +1156,15 @@ async function nativeReply(run, target, stillCurrent, signal, openHome) {
         state = home;
       }
       for (let page = 0; page < 8 && !homeItem(state, target); page++) {
-        const disclosure = listControl(state, target, /^button \(collapsed\)$/);
-        const more = disclosure ?? listControl(state, target, /^button Show [0-9]+ more$/);
-        if (!sameHome(state, target.bot) || !await press(state, more)) return false;
+        const disclosure = listControl(state, target, collapsedGroup);
+        const more = disclosure ?? listControl(state, target, (label) => /^button Show [0-9]+ more$/.test(label));
+        if (!sameHome(state, target.bot) || !await press(state, more)) return "item-unavailable";
         const before = state.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length;
-        const next = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot) && (!!homeItem(view, target) || view.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length !== before || Boolean(disclosure && listControl(view, target, /^button \(expanded\)$/))));
-        if (!next) return false;
+        const next = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot) && (!!homeItem(view, target) || view.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length !== before || Boolean(disclosure && listControl(view, target, (label) => label === "button (expanded)"))));
+        if (!next) return "item-unavailable";
         state = next;
       }
-      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return false;
+      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return "item-unavailable";
     }
   }
   if (!active() || !await stillCurrent()) return false;
@@ -1472,12 +1476,16 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
       if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === botId).length !== 1 || !bots.some((bot) => bot.id === botId && bot.name === target.bot && bot.server == null)) return { opened: false };
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) && JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target);
       const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal));
-      if (typeof result === "string") return { opened: result === "read-only", reason: result };
+      if (typeof result === "string") {
+        if (result !== "read-only" && !signal.aborted) orca.log("board.reply: " + result);
+        return { opened: result === "read-only", reason: result };
+      }
       return { opened: result };
     } catch (error) {
       orca.log(label(copy("Could not verify the reply destination in Orca: ", "\u6A19\u6E96\u306E\u56DE\u7B54\u5148\u3092\u7167\u5408\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: ")) + (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : "navigation_failed"));
       return { opened: false };
     } finally {
+      if (signal.aborted) orca.log("board.reply: cancelled");
       replying = false;
     }
   });

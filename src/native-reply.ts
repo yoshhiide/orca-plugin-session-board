@@ -8,7 +8,7 @@ type ItemIdentity = {bot: string; number: number; title: string}
 export type ReplyTarget = ItemIdentity & {at: number; question: ReplyQuestion}
 export type ItemReplyTarget = ItemIdentity & {state: State; snoozed: boolean}
 type NativeTarget = ReplyTarget | ItemReplyTarget
-export type NativeReplyIssue = 'accessibility-required' | 'bot-home-unavailable'
+export type NativeReplyIssue = 'accessibility-required' | 'window-unavailable' | 'bot-home-unavailable' | 'item-unavailable'
 
 const statusNames: Record<State, string[]> = {
   input:['Needs you'], working:['In progress'], external:['Waiting'], planned:['Planned'],
@@ -105,16 +105,21 @@ function itemGroups(target: NativeTarget): string[] {
   return [...statusNames[target.state], 'Stale']
 }
 
-function listControl(state: AxState, target: NativeTarget, label: RegExp): AxNode | undefined {
+function listControl(state: AxState, target: NativeTarget, matches: (label: string, group: string) => boolean): AxNode | undefined {
   const panel = homePanel(state, target.bot)
   if (!panel) return
   for (const group of itemGroups(target)) {
     const heading = one(state.nodes.filter(node => node.label === 'heading ' + group && under(node, panel)))
     if (!heading?.parent?.parent) continue
     const control = one(state.nodes.filter(node => (node.parent === heading.parent ||
-      node.parent === heading.parent!.parent) && label.test(node.label)))
+      node.parent === heading.parent!.parent) && matches(node.label, group)))
     if (control) return control
   }
+}
+
+function collapsedGroup(label: string, group: string): boolean {
+  const prefix = 'button ' + group + ' '
+  return label === 'button (collapsed)' || (label.startsWith(prefix) && /^[0-9]+$/.test(label.slice(prefix.length)))
 }
 
 function exactQuestion(state: AxState, scope: AxNode, target: ReplyTarget) {
@@ -169,7 +174,7 @@ export async function nativeReply(
   if (!list(permission.permissions).some(entry => entry.id === 'accessibility' && entry.status === 'granted')) return 'accessibility-required'
   const windows = list((await run('computer', 'list-windows', '--app', app)).windows)
   const window = one(windows.filter(frame => optional(frame.app).bundleId === app))
-  if (!window || typeof window.id !== 'number' || window.isOffscreen !== false || window.isMinimized !== false) return false
+  if (!window || typeof window.id !== 'number' || window.isOffscreen !== false || window.isMinimized !== false) return 'window-unavailable'
   const windowId = window.id
   const args = ['--app', app, '--window-id', String(windowId), '--session', 'board-reply-' + randomUUID(), '--no-screenshot']
   const read = async () => parse(await run('computer', 'get-app-state', ...args), windowId)
@@ -216,17 +221,17 @@ export async function nativeReply(
         state = home
       }
       for (let page = 0; page < 8 && !homeItem(state, target); page++) {
-        const disclosure = listControl(state, target, /^button \(collapsed\)$/)
-        const more = disclosure ?? listControl(state, target, /^button Show [0-9]+ more$/)
-        if (!sameHome(state, target.bot) || !await press(state, more)) return false
+        const disclosure = listControl(state, target, collapsedGroup)
+        const more = disclosure ?? listControl(state, target, label => /^button Show [0-9]+ more$/.test(label))
+        if (!sameHome(state, target.bot) || !await press(state, more)) return 'item-unavailable'
         const before = state.nodes.filter(node => /^button #[0-9]+ /.test(node.label)).length
         const next = await waitFor(view => sameHome(view, target.bot) && !!homePanel(view, target.bot) &&
           (!!homeItem(view, target) || view.nodes.filter(node => /^button #[0-9]+ /.test(node.label)).length !== before ||
-            Boolean(disclosure && listControl(view, target, /^button \(expanded\)$/))))
-        if (!next) return false
+            Boolean(disclosure && listControl(view, target, label => label === 'button (expanded)'))))
+        if (!next) return 'item-unavailable'
         state = next
       }
-      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return false
+      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return 'item-unavailable'
     }
   }
 
