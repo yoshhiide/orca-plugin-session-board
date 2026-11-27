@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "session-board",
   "name": "Session Board",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Track Bot work and regular Orca sessions together in the sidebar.",
   "engines": {
     "orca": ">=1.4.277"

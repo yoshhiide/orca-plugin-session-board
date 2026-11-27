@@ -1031,8 +1031,9 @@ function parse(result, window) {
   return { nodes, focused: String(snapshot.focusedElementId), disabled: new Set(snapshot.disabledElementIndexes.map(String)) };
 }
 function sameHome({ nodes }, bot) {
-  const composers = new Set(nodes.filter((node) => /^text entry area \(settable\) Ask anything, @ to mention bots or files, \/ for commands\b/.test(node.label)).map((node) => node.parent).filter(Boolean));
-  const footers = nodes.filter((node) => composers.has(node.parent) && (node.label.startsWith("button Copy ") || /^button .+ をコピー$/.test(node.label)));
+  const composers = new Set(nodes.filter((node) => /^text entry area \(settable\)(?: |$)/.test(node.label)).map((node) => node.parent).filter(Boolean));
+  const attachments = new Set(nodes.filter((node) => /^button (?:\(disabled\) )?(?:Attach files?|ファイルを添付する)$/.test(node.label)).map((node) => node.parent));
+  const footers = nodes.filter((node) => composers.has(node.parent) && attachments.has(node.parent) && (node.label.startsWith("button Copy ") || /^button .+ をコピー$/.test(node.label)));
   if (footers.length) {
     const footer = one(footers)?.label;
     return footer === "button Copy " + bot || footer === "button " + bot + " \u3092\u30B3\u30D4\u30FC";
@@ -1119,23 +1120,43 @@ function emptyComposer(state, scope, bot) {
 function commentComposer(state, scope) {
   return one(state.nodes.filter((node) => under(node, scope) && /^text entry area \(settable\) (?:コメント|Comment)(?: |$)/.test(node.label) && !state.disabled.has(node.index)));
 }
-async function nativeReply(run, target, stillCurrent, signal, openHome, stage) {
+async function prepareNativeReply(run, signal) {
+  if (process.platform !== "darwin") return "platform-unavailable";
+  if (signal.aborted) return false;
+  const shared = ["--app", app, "--session", "board-reply-" + randomUUID(), "--no-screenshot"];
+  try {
+    const [windowList, observed] = await Promise.all([
+      run("computer", "list-windows", "--app", app),
+      run("computer", "get-app-state", ...shared).catch((error) => {
+        if (error instanceof Error && ["window_not_found", "window_stale"].includes(error.message)) return void 0;
+        throw error;
+      })
+    ]);
+    if (signal.aborted) return false;
+    const window = one(list(windowList.windows).filter((frame) => optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false));
+    if (!window || typeof window.id !== "number") return "window-unavailable";
+    const windowId = window.id;
+    const args = [...shared, "--window-id", String(windowId)];
+    const observedWindow = optional(optional(observed?.snapshot).window);
+    const selected = observed && observedWindow.id === windowId ? observed : await run("computer", "get-app-state", ...args);
+    return { windowId, args, first: parse(selected, windowId) };
+  } catch (error) {
+    if (error instanceof Error && error.message === "permission_denied") return "accessibility-required";
+    throw error;
+  }
+}
+async function nativeReply(run, target, stillCurrent, signal, openHome, stage, preflight) {
   const deadline = Date.now() + 22e3;
   const active = () => !signal.aborted && Date.now() < deadline;
   stage?.("preflight");
-  const [permission, windowList] = await Promise.all([
-    run("computer", "permissions"),
-    run("computer", "list-windows", "--app", app)
-  ]);
-  if (permission.platform !== "darwin") return "platform-unavailable";
-  if (!list(permission.permissions).some((entry) => entry.id === "accessibility" && entry.status === "granted")) return "accessibility-required";
-  const window = one(list(windowList.windows).filter((frame) => optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false));
-  if (!window || typeof window.id !== "number") return "window-unavailable";
-  const windowId = window.id;
-  const args = ["--app", app, "--window-id", String(windowId), "--session", "board-reply-" + randomUUID(), "--no-screenshot"];
+  if (!active()) return false;
+  const [initial, current] = await Promise.all([preflight ?? prepareNativeReply(run, signal), stillCurrent()]);
+  if (typeof initial !== "object") return initial;
+  if (!active() || !current) return false;
+  const { windowId, args, first } = initial;
   const read = async () => parse(await run("computer", "get-app-state", ...args), windowId);
-  async function waitFor(predicate, initial) {
-    if (typeof initial === "object" && active() && predicate(initial)) return initial;
+  async function waitFor(predicate, initial2) {
+    if (typeof initial2 === "object" && active() && predicate(initial2)) return initial2;
     for (let attempt = 0; attempt < 5 && active(); attempt++) {
       const state2 = await read();
       if (predicate(state2)) return state2;
@@ -1172,8 +1193,6 @@ async function nativeReply(run, target, stillCurrent, signal, openHome, stage) {
     }
     return false;
   }
-  const [first, current] = await Promise.all([read(), stillCurrent()]);
-  if (!active() || !current) return false;
   let state = first;
   stage?.("bot-home");
   if (!sameHome(state, target.bot)) {
@@ -1542,6 +1561,9 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
       phaseStart = now;
     };
     try {
+      const preflight = prepareNativeReply(run, signal);
+      void preflight.catch(() => {
+      });
       const [data, target] = await Promise.all([run("bot", "list"), readItemReplyTarget(run, row, questionId, index)]);
       const bots = list(data.bots);
       if (target === "choose" || target === "changed") {
@@ -1553,7 +1575,7 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
         return { opened: false, reason: "target-unavailable" };
       }
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) && JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target);
-      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark);
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark, preflight);
       if (typeof result === "string") {
         outcome = result;
         if (!signal.aborted && (result === "item-unavailable" || result === "question-unavailable" || result === "composer-unavailable")) {

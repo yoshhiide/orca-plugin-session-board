@@ -383,6 +383,57 @@ test('Bot Homeへは表示済みの質問が差し替わっていない同じBot
   }
 })
 
+test('返信先の取得中に窓の確認を開始し、連打を拒否して権限エラー後に再試行できる', async () => {
+  if (process.platform !== 'darwin') return
+  let beginTargetRead: () => void = () => {}
+  let finishPreflight: () => void = () => {}
+  const targetStarted = new Promise<void>(resolve => { beginTargetRead = resolve })
+  const preflightPending = new Promise<void>(resolve => { finishPreflight = resolve })
+  let inventoryCalls = 0
+  let snapshotCalls = 0
+  let opens = 0
+  const run: Cli = async (...args) => {
+    switch (args.slice(0, 3).join(' ')) {
+      case 'bot item list': return {botId:'sample-bot',items:[{
+        uid:'item-key',number:3,title:item.title,status:'planned',updatedAt:100,links:[],lastEventId:'e1'
+      }]}
+      case 'bot item show':
+        beginTargetRead()
+        return {item:{uid:'item-key',number:3,title:item.title,status:'planned',
+          owner:{botId:'sample-bot',name:'サンプル Bot'}},events:[]}
+      case 'computer list-windows --app':
+        inventoryCalls++
+        return {windows:[]}
+      case 'computer get-app-state --app':
+        snapshotCalls++
+        if (snapshotCalls > 1) return {}
+        await preflightPending
+        throw new Error('permission_denied')
+      default: return mockCli()(...args)
+    }
+  }
+  const tested = await mountWorker({
+    default: (orca: OrcaWorkerApi) => {
+      setupWorker(orca, run, 0, async () => { opens++; return true }, fixedNow)
+    }
+  })
+  try {
+    const board = await tested.request('board.refresh')
+    const id = board.rows.find(row => row.source === 'Bot Item')!.id
+    const reply = tested.request('board.reply', {id})
+    await targetStarted
+    assert.deepEqual([inventoryCalls,snapshotCalls],[1,1])
+    assert.deepEqual(await tested.request('board.reply', {id}), {opened:false})
+    finishPreflight()
+    assert.deepEqual(await reply, {opened:false,reason:'accessibility-required'})
+    assert.deepEqual(await tested.request('board.reply', {id}), {opened:false,reason:'window-unavailable'})
+    assert.deepEqual([inventoryCalls,snapshotCalls,opens],[2,2,0])
+  } finally {
+    finishPreflight()
+    await tested.deactivate()
+  }
+})
+
 test('Hostのパネル入口から更新・詳細・端末遷移を使い、競合する端末を拒否する', async () => {
   const options: {handle?: string; incarnation?: string} = {}
   let dispose: (() => void) | undefined

@@ -60,10 +60,13 @@ function parse(result: Awaited<ReturnType<Cli>>, window: number): AxState {
 }
 
 function sameHome({nodes}: AxState, bot: string): boolean {
-  // Newer Orca builds name the active Bot in the native chat composer's footer.
-  const composers = new Set(nodes.filter(node => /^text entry area \(settable\) Ask anything, @ to mention bots or files, \/ for commands\b/.test(node.label))
+  // The editable chat field may display an existing draft instead of its placeholder.
+  const composers = new Set(nodes.filter(node => /^text entry area \(settable\)(?: |$)/.test(node.label))
     .map(node => node.parent).filter(Boolean))
+  const attachments = new Set(nodes.filter(node =>
+    /^button (?:\(disabled\) )?(?:Attach files?|ファイルを添付する)$/.test(node.label)).map(node => node.parent))
   const footers = nodes.filter(node => composers.has(node.parent) &&
+    attachments.has(node.parent) &&
     (node.label.startsWith('button Copy ') || /^button .+ をコピー$/.test(node.label)))
   if (footers.length) {
     const footer = one(footers)?.label
@@ -180,23 +183,51 @@ function commentComposer(state: AxState, scope: AxNode): AxNode | undefined {
     !state.disabled.has(node.index)))
 }
 
+type NativePreflight = {windowId: number; args: string[]; first: AxState} | NativeReplyIssue | false
+
+export async function prepareNativeReply(run: Cli, signal: AbortSignal): Promise<NativePreflight> {
+  if (process.platform !== 'darwin') return 'platform-unavailable'
+  if (signal.aborted) return false
+  const shared = ['--app', app, '--session', 'board-reply-' + randomUUID(), '--no-screenshot']
+  try {
+    // The provider checks Accessibility when reading. The first snapshot is usable
+    // only if the independent inventory selects the very same visible window.
+    const [windowList, observed] = await Promise.all([
+      run('computer', 'list-windows', '--app', app),
+      run('computer', 'get-app-state', ...shared).catch((error: unknown) => {
+        if (error instanceof Error && ['window_not_found', 'window_stale'].includes(error.message)) return undefined
+        throw error
+      })
+    ])
+    if (signal.aborted) return false
+    const window = one(list(windowList.windows).filter(frame =>
+      optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false))
+    if (!window || typeof window.id !== 'number') return 'window-unavailable'
+    const windowId = window.id
+    const args = [...shared, '--window-id', String(windowId)]
+    const observedWindow = optional(optional(observed?.snapshot).window)
+    const selected = observed && observedWindow.id === windowId ? observed :
+      await run('computer', 'get-app-state', ...args)
+    return {windowId, args, first:parse(selected, windowId)}
+  } catch (error) {
+    if (error instanceof Error && error.message === 'permission_denied') return 'accessibility-required'
+    throw error
+  }
+}
+
 export async function nativeReply(
   run: Cli, target: NativeTarget, stillCurrent: () => Promise<boolean>, signal: AbortSignal,
-  openHome: () => Promise<boolean>, stage?: (value: ReplyStage) => void
+  openHome: () => Promise<boolean>, stage?: (value: ReplyStage) => void,
+  preflight?: Promise<NativePreflight>
 ): Promise<boolean | 'read-only' | NativeReplyIssue> {
   const deadline = Date.now() + 22_000
   const active = () => !signal.aborted && Date.now() < deadline
   stage?.('preflight')
-  const [permission, windowList] = await Promise.all([
-    run('computer', 'permissions'), run('computer', 'list-windows', '--app', app)
-  ])
-  if (permission.platform !== 'darwin') return 'platform-unavailable'
-  if (!list(permission.permissions).some(entry => entry.id === 'accessibility' && entry.status === 'granted')) return 'accessibility-required'
-  const window = one(list(windowList.windows).filter(frame =>
-    optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false))
-  if (!window || typeof window.id !== 'number') return 'window-unavailable'
-  const windowId = window.id
-  const args = ['--app', app, '--window-id', String(windowId), '--session', 'board-reply-' + randomUUID(), '--no-screenshot']
+  if (!active()) return false
+  const [initial, current] = await Promise.all([preflight ?? prepareNativeReply(run, signal), stillCurrent()])
+  if (typeof initial !== 'object') return initial
+  if (!active() || !current) return false
+  const {windowId, args, first} = initial
   const read = async () => parse(await run('computer', 'get-app-state', ...args), windowId)
   async function waitFor(predicate: (state: AxState) => boolean, initial?: AxState | boolean) {
     if (typeof initial === 'object' && active() && predicate(initial)) return initial
@@ -225,8 +256,6 @@ export async function nativeReply(
     }
     return false
   }
-  const [first, current] = await Promise.all([read(), stillCurrent()])
-  if (!active() || !current) return false
   let state = first
   stage?.('bot-home')
   if (!sameHome(state, target.bot)) {

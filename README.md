@@ -7,7 +7,7 @@ Track Bot work and regular Orca sessions together in the right sidebar. The list
 Session Board runs in Orca 1.4.277 or later on macOS. Turn on plugins in Orca Settings, then look for **Session Board** in Community. You can also install a tagged GitHub release.
 
 ```sh
-orca plugin install yoshhiide/orca-plugin-session-board@v0.2.8 --json
+orca plugin install yoshhiide/orca-plugin-session-board@v0.2.14 --json
 ```
 
 Check that the publisher is `yoshhiide`, the plugin ID is `session-board`, and the execution profile is `trusted-worker`. When installing through the CLI, use the approval command it returns to confirm the installation.

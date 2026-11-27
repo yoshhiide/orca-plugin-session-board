@@ -14,7 +14,7 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false, freeText = false, alreadyBound = false, changedIndex = false, actionSnapshots = false, footerLocale = '', falseFooter = false, windows = [{id:1,isOffscreen:false,isMinimized:false}]} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false, freeText = false, alreadyBound = false, changedIndex = false, actionSnapshots = false, footerLocale = '', falseFooter = false, homeDraft = false, windows = [{id:1,isOffscreen:false,isMinimized:false}]} = {}) {
   const presses: string[] = []
   let page = 0
   let groupExpanded = !collapsedGroup
@@ -62,8 +62,9 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
       treeText:tree(
         ...(footerLocale ? [
           ' 60 container',
-          '  61 text entry area (settable) Ask anything, @ to mention bots or files, / for commands',
+          '  61 text entry area (settable) ' + (homeDraft ? '架空の下書き' : 'Ask anything, @ to mention bots or files, / for commands'),
           '  62 button ' + (footerLocale === 'ja' ? bot + ' をコピー' : 'Copy ' + bot),
+          '  65 button ' + (footerLocale === 'ja' ? 'ファイルを添付する' : 'Attach file'),
           ...(falseFooter ? [' 63 container','  64 button Copy 見本Bot'] : [])
         ] : [" 1 button Open " + bot + "'s page"]),
         ' 2 container',
@@ -223,6 +224,38 @@ test('accepts a single visible window, and refuses to choose between two visible
     assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),hidden ? true : 'window-unavailable')
     assert.deepEqual(presses,hidden ? ['3','7','25'] : [])
   }
+})
+
+test('re-reads the only visible window when the unpinned snapshot selects a different one', async () => {
+  const {run,current,openHome,presses} = fixture({actionSnapshots:true})
+  const reads: string[][] = []
+  const wrapped: Cli = async (...args) => {
+    const result = await run(...args)
+    if (args[1] !== 'get-app-state') return result
+    reads.push(args)
+    if (!args.includes('--window-id')) (result.snapshot as {window:{id:number}}).window.id = 2
+    return result
+  }
+  assert.equal(await nativeReply(wrapped,target,current,new AbortController().signal,openHome),true)
+  assert.deepEqual(reads.map(args => args.includes('--window-id')), [false, true])
+  assert.deepEqual(presses,['3','7','25'])
+})
+
+test('uses the existing Accessibility gate and leaves the Bot and item alone on denial', async () => {
+  const {run,current,openHome,opens,presses} = fixture()
+  const denied: Cli = async (...args) => {
+    if (args[1] === 'get-app-state') throw new Error('permission_denied')
+    return run(...args)
+  }
+  assert.equal(await nativeReply(denied,target,current,new AbortController().signal,openHome),'accessibility-required')
+  assert.equal(opens(),0)
+  assert.deepEqual(presses,[])
+})
+
+test('matches the native Bot when a draft is displayed in the main chat composer', async () => {
+  const {run,current,openHome,presses} = fixture({footerLocale:'ja',homeDraft:true,otherBot:true})
+  assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),true)
+  assert.deepEqual(presses,['3','7','25'])
 })
 
 test('locates the same Item on a fresh AX snapshot after its index expires', async () => {

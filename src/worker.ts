@@ -3,7 +3,7 @@ import type { OrcaWorkerApi, PluginEvents } from 'orca/worker'
 import type {} from './protocol'
 import { execFile } from 'node:child_process'
 import { botDetail, pendingQuestionId, readItemReplyTarget, sessionDetail, terminalMatches, uniqueLocalBot, workerConversation } from './conversation'
-import { nativeReply, type ReplyStage } from './native-reply'
+import { nativeReply, prepareNativeReply, type ReplyStage } from './native-reply'
 import { activityWindow, sessionState, sourceNames, states, transition, visibleRows, withinActivityWindow, type Batch, type Board, type Detail, type Row, type Transition } from './model'
 import { cli, collect, itemHistory, itemPage, list, optional, terminalStillMatches, time, type Cli } from './sources'
 
@@ -302,6 +302,10 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
       phaseStart = now
     }
     try {
+      const preflight = prepareNativeReply(run, signal)
+      // A rejected preflight is consumed by nativeReply once the destination is validated.
+      // Requests that require a new selection can return without waiting for it.
+      void preflight.catch(() => {})
       const [data, target] = await Promise.all([run('bot', 'list'), readItemReplyTarget(run, row, questionId, index)])
       const bots = list(data.bots)
       if (target === 'choose' || target === 'changed') {
@@ -316,7 +320,7 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
       }
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) &&
         JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target)
-      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark)
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark, preflight)
       if (typeof result === 'string') {
         outcome = result
         if (!signal.aborted && (result === 'item-unavailable' || result === 'question-unavailable' || result === 'composer-unavailable')) {
