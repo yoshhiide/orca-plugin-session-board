@@ -1,7 +1,11 @@
+import { display, language, type Copy } from './language'
 import type { Activity } from './model'
 
-const day = new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
-const time = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' })
+const locale = language(orca.locale)
+const t = (en: string, ja: string) => locale === 'ja' ? ja : en
+const day = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
+const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' })
+const number = new Intl.NumberFormat(locale)
 const make = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = '') => {
   const el = document.createElement(tag)
   el.textContent = text
@@ -71,12 +75,13 @@ function validImage(src: string) {
 }
 function imageButton(image: { alt: string; src: string }) {
   const control = make('button', '', 'activity-image')
-  control.type = 'button'; control.setAttribute('aria-label', (image.alt || '画像') + 'を拡大')
+  control.type = 'button'; control.setAttribute('aria-label',
+    image.alt ? t('Enlarge ' + image.alt, image.alt + 'を拡大') : t('Enlarge image', '画像を拡大'))
   const thumb = make('img'); thumb.src = image.src; thumb.alt = image.alt; thumb.loading = 'lazy'; control.append(thumb)
   control.addEventListener('click', () => {
     const viewer = make('dialog', '', 'image-viewer')
-    viewer.setAttribute('aria-label', image.alt || '画像プレビュー')
-    const close = make('button', '閉じる', 'image-close'); close.type = 'button'
+    viewer.setAttribute('aria-label', image.alt || t('Image preview', '画像プレビュー'))
+    const close = make('button', t('Close', '閉じる'), 'image-close'); close.type = 'button'
     const full = make('img'); full.src = image.src; full.alt = image.alt
     close.addEventListener('click', () => viewer.close())
     viewer.addEventListener('cancel', event => { event.stopPropagation() })
@@ -88,11 +93,12 @@ function imageButton(image: { alt: string; src: string }) {
   figure.append(control, make('figcaption', image.alt))
   return figure
 }
-export function renderActivity(container: HTMLElement, data: Activity, related: boolean, routeHint?: string) {
-  if (related) container.append(make('h3', '関連するBotチャット', 'activity-heading'))
-  container.append(make('p', '出典：' + data.source, 'small source'))
-  if (data.issue) container.append(make('p', data.issue, 'small'))
-  if (data.navigationHint) container.append(make('p', data.navigationHint, 'small image-route'))
+export function renderActivity(container: HTMLElement, data: Activity, related: boolean, routeHint?: Copy) {
+  const translated = (value: Copy) => display(value, locale)
+  if (related) container.append(make('h3', t('Related Bot chat', '関連するBotチャット'), 'activity-heading'))
+  container.append(make('p', t('Source: ', '出典：') + translated(data.source), 'small source'))
+  if (data.issue) container.append(make('p', translated(data.issue), 'small'))
+  if (data.navigationHint) container.append(make('p', translated(data.navigationHint), 'small image-route'))
   let previousDay = ''
   let previous: Activity['entries'][number] | undefined
   let unknownShown = false
@@ -104,24 +110,30 @@ export function renderActivity(container: HTMLElement, data: Activity, related: 
     if (valid && key !== previousDay) {
       container.append(make('h4', day.format(valid), 'activity-day'))
     } else if (!valid && !unknownShown) {
-      container.append(make('p', '日時不明のActivityを含みます', 'small activity-unknown')); unknownShown = true
+      container.append(make('p', t('Some activity has no timestamp.', '日時不明のActivityを含みます'), 'small activity-unknown')); unknownShown = true
     }
     const message = make('article', '', 'message')
     const speaker = entry.kind ? undefined : entry.speaker
     message.dataset.side = entry.kind ? 'event' : speaker?.side ?? 'neutral'
     if (speaker && previous?.speaker && key === previousDay &&
       speaker.id === previous.speaker.id && speaker.side === previous.speaker.side &&
-      entry.author === previous.author) message.dataset.repeat = ''
+      translated(entry.author) === translated(previous.author)) message.dataset.repeat = ''
     previousDay = key
     previous = speaker ? entry : undefined
     const head = make('header')
-    const label = entry.kind === 'image-view' ? '画像を表示' + (entry.count && entry.count > 1 ? `（${entry.count}件）` : '') : entry.author
+    const label = entry.kind === 'image-view' ?
+      (entry.count && entry.count > 1 ? t(number.format(entry.count) + ' images viewed',
+        '画像を表示（' + number.format(entry.count) + '件）') : t('Image viewed', '画像を表示')) : translated(entry.author)
     head.append(make('strong', label))
     if (valid) { const clock = make('time', time.format(valid), 'small'); clock.dateTime = valid.toISOString(); head.append(clock) }
     message.append(head)
     const surface = make('div', '', 'message-surface')
     if (entry.kind === 'image-view') {
-      if (!imageRouteShown && (entry.body || routeHint)) { surface.append(make('p', entry.body || routeHint, 'small image-route')); imageRouteShown = true }
+      const imageRoute = entry.body || routeHint
+      if (!imageRouteShown && imageRoute) {
+        surface.append(make('p', translated(imageRoute), 'small image-route'))
+        imageRouteShown = true
+      }
     } else if (entry.body) surface.append(entry.kind === 'terminal-output' ?
       make('pre', entry.body, 'terminal-output') : markdown(entry.body))
     const images = (entry.images ?? []).filter(image => validImage(image.src))
@@ -133,5 +145,5 @@ export function renderActivity(container: HTMLElement, data: Activity, related: 
     if (surface.hasChildNodes()) message.append(surface)
     container.append(message)
   }
-  if (!data.entries.length && !data.issue) container.append(make('p', '表示できるActivityはありません。', 'small source'))
+  if (!data.entries.length && !data.issue) container.append(make('p', t('No activity to show.', '表示できるActivityはありません。'), 'small source'))
 }

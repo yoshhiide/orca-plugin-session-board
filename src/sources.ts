@@ -1,3 +1,4 @@
+import { copy, joinCopy, type Copy } from './language'
 import { execFile } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
 import { activityWindow, itemState, sessionState, withinActivityWindow, type Batch, type Row, type Transition } from './model'
@@ -56,14 +57,14 @@ export const cli: Cli = (...args) => new Promise((resolve, reject) => {
   })
 })
 
-export function errorLabel(error: unknown): string {
+export function errorLabel(error: unknown): Copy {
   const code = error instanceof Error ? error.message : ''
-  if (code === 'timeout') return '取得がタイムアウトしました'
-  if (/^[a-z][a-z0-9_]{1,63}$/.test(code)) return '取得できません（' + code + '）'
-  return '取得できません'
+  if (code === 'timeout') return copy('Fetch timed out', '取得がタイムアウトしました')
+  if (/^[a-z][a-z0-9_]{1,63}$/.test(code)) return copy('Could not fetch (' + code + ')', '取得できません（' + code + '）')
+  return copy('Could not fetch', '取得できません')
 }
 
-async function capture(key: string, label: string, get: () => Promise<Row[]>): Promise<Batch> {
+async function capture(key: string, label: Copy, get: () => Promise<Row[]>): Promise<Batch> {
   try {
     return { key, label, ok: true, rows: await get() }
   } catch (error) {
@@ -109,7 +110,7 @@ async function items(run: Cli, bot: string, origin: string, clock: () => number,
       const reason = state === 'input' ? text(optional(item.question).gist, Infinity) :
         state === 'external' ? text(optional(item.wait).text ?? optional(item.wait).reason, Infinity) : ''
       rows.push({
-        id: 'item:' + bot + ':' + uid, source: 'Bot Item', title: text(item.title) || 'Item',
+        id: 'item:' + bot + ':' + uid, source: 'Bot Item', title: text(item.title) || copy('Item', '項目'),
         origin: origin + ' · #' + String(item.number ?? uid), state, at,
         ref: uid, bot,
         questionId: text(item.waitingAsk) || (state === 'input' ? text(optional(item.question).eventId) : '') || undefined,
@@ -178,7 +179,7 @@ async function workers(run: Cli, work: RecordData[], bot: string, origin: string
       continue
     }
     const row: Row = {
-      id: 'worker:' + bot + ':' + ref, source: 'Bot ワーカー', title: text(entry.title) || 'ワーカー',
+      id: 'worker:' + bot + ':' + ref, source: 'Bot ワーカー', title: text(entry.title) || copy('Worker', 'ワーカー'),
       origin, state, at, ref
     }
     let verified = false
@@ -213,8 +214,8 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
   let inventory: ReturnType<typeof workerInventory> | undefined
   let complete = false
   let membership = false
-  let terminalIssue: string | undefined
-  const agentResult = capture('agents', '通常セッション', async () => {
+  let terminalIssue: Copy | undefined
+  const agentResult = capture('agents', copy('Regular sessions', '通常セッション'), async () => {
     const [data, terminals] = await Promise.all([
       run('agent', 'list'),
       run('terminal', 'list').then(async value => {
@@ -253,8 +254,8 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
       return [{
         id: agent.kind === 'chat' ? 'chat:' + id : 'terminal:' + JSON.stringify([id, pane]),
         source: agent.kind === 'chat' ? 'Orca チャット' : 'Orca ターミナル',
-        title: text(agent.title) || text(agent.agent) || 'セッション',
-        origin: text(agent.workspace) || text(agent.repo) || 'このMac',
+        title: text(agent.title) || text(agent.agent) || copy('Session', 'セッション'),
+        origin: text(agent.workspace) || text(agent.repo) || copy('This Mac', 'このMac'),
         state: sessionState(agent.state), at, ref: id ? 'orca_session_id:' + id : pane,
         pane, workspace: text(agent.worktreeId), target: target ? identifier(target.handle) : undefined,
         stateAt: agent.kind === 'terminal' && time(agent.updatedAt) <= now ? time(agent.updatedAt) : undefined,
@@ -266,7 +267,7 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
       if (occupied.has(handle) || !withinActivityWindow(terminal.lastOutputAt, now)) continue
       rows.push({
         id: 'terminal-ui:' + handle, source: 'Orca ターミナル',
-        title: text(terminal.title) || 'ターミナル', origin: text(terminal.branch) || 'このMac',
+        title: text(terminal.title) || copy('Terminal', 'ターミナル'), origin: text(terminal.branch) || copy('This Mac', 'このMac'),
         state: 'unknown', at: terminal.lastOutputAt, ref: handle, pane: terminal.paneKey, target: handle, workspace: text(terminal.worktreeId),
         targetIncarnation: text(terminal.incarnationId) || undefined
       })
@@ -278,7 +279,7 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
     const bots = list(root.bots).filter(bot => bot.server == null)
     complete = Array.isArray(root.unreachable) && root.unreachable.length === 0
     membership = complete
-    if (!complete) batches.push({key:'bots',label:'Bot一覧',ok:false,rows:[],issue:'一部のBotに接続できません'})
+    if (!complete) batches.push({key:'bots',label:copy('Bot list', 'Bot一覧'),ok:false,rows:[],issue:copy('Could not connect to some Bots', '一部のBotに接続できません')})
     for (let i = 0; i < bots.length; i += 3) {
       await Promise.all(bots.slice(i, i + 3).map(async entry => {
         const bot = identifier(entry.id)
@@ -286,11 +287,11 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
         const settlements = new Map<string, number>()
         const workResult = run('bot', 'work', 'list', '--bot', bot).then(data => list(data.items))
         const hasWorkers = workResult.then(work => work.length > 0, () => false)
-        const itemResult = capture(bot + ':items', origin + ' / Item',
+        const itemResult = capture(bot + ':items', joinCopy([origin, copy('Items', '項目')], ' / '),
           () => items(run, bot, origin, clock, settlements, hasWorkers))
         const [itemBatch, workerBatch, chats] = await Promise.all([
           itemResult,
-          capture(bot + ':workers', origin + ' / ワーカー', async () => {
+          capture(bot + ':workers', joinCopy([origin, copy('Workers', 'ワーカー')], ' / '), async () => {
             const work = await workResult
             if (!work.length) return []
             inventory ??= workerInventory(run)
@@ -316,13 +317,13 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
   } catch (error) {
     complete = false
     membership = false
-    batches.push({ key: 'bots', label: 'Bot一覧', ok: false, rows: [], issue: errorLabel(error) })
+    batches.push({ key: 'bots', label: copy('Bot list', 'Bot一覧'), ok: false, rows: [], issue: errorLabel(error) })
   }
   const agents = await agentResult
   // Exact ownership is required before publishing a new set of normal sessions.
   if (!membership && agents.ok) {
     agents.ok = false
-    agents.issue = 'Botへの所属を確認できません'
+    agents.issue = copy('Could not verify Bot ownership', 'Botへの所属を確認できません')
   }
   agents.rows = agents.rows.filter(row => !botSessions.has(row.ref.replace(/^orca_session_id:/, '')) &&
     !(row.workspace && uncertainWorkspaces.has(row.workspace) && row.pane?.startsWith('structured-agent-session-')) &&
@@ -330,7 +331,7 @@ export async function collect(run: Cli, clock = Date.now): Promise<{ batches: Ba
   const plain = agents.rows.filter(row => row.id.startsWith('terminal-ui:'))
   agents.rows = agents.rows.filter(row => !row.id.startsWith('terminal-ui:'))
   batches.push(agents, {
-    key:'terminal-list', label:'ターミナル一覧', ok:agents.ok && !terminalIssue, rows:plain,
+    key:'terminal-list', label:copy('Terminal list', 'ターミナル一覧'), ok:agents.ok && !terminalIssue, rows:plain,
     issue:terminalIssue ?? agents.issue
   })
   return { batches, complete }
@@ -368,7 +369,7 @@ export function itemTransitions(events: RecordData[], after?: string) {
     const to = itemState(fields.to)
     const at = time(event.at)
     if (at && from !== to && id !== after) entries.push({
-      id, transition: { from, to, at, via: 'Bot Item 履歴' }
+      id, transition: { from, to, at, via: copy('Bot Item history', 'Bot Item 履歴') }
     })
   }
   return entries

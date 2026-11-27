@@ -1,9 +1,10 @@
+import { copy, display, joinCopy, language, type Copy, type Language } from './language'
 import type { OrcaWorkerApi, PluginEvents } from 'orca/worker'
 import type {} from './protocol'
 import { execFile } from 'node:child_process'
 import { botDetail, pendingQuestionId, readItemReplyTarget, sessionDetail, terminalMatches, uniqueLocalBot, workerConversation } from './conversation'
 import { nativeReply } from './native-reply'
-import { activityWindow, sessionState, states, transition, visibleRows, withinActivityWindow, type Batch, type Board, type Detail, type Row, type Transition } from './model'
+import { activityWindow, sessionState, sourceNames, states, transition, visibleRows, withinActivityWindow, type Batch, type Board, type Detail, type Row, type Transition } from './model'
 import { cli, collect, itemHistory, itemPage, list, optional, terminalStillMatches, time, type Cli } from './sources'
 
 type Snapshot = Awaited<ReturnType<typeof collect>>
@@ -14,7 +15,7 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
   const cache = new Map<string, SourceCache>()
   const history = new Map<string, Transition[]>()
   const eventAt = new Map<string, number>()
-  let notificationIssue: string | undefined
+  let notificationIssue: Copy | undefined
 
   function allRows(): Board['rows'] {
     const now = clock()
@@ -33,7 +34,7 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
     const records = [...cache.values()]
     const sorted = allRows().sort((a, b) =>
       Number(b.state === 'input') - Number(a.state === 'input') ||
-      b.at - a.at || a.title.localeCompare(b.title, 'ja'))
+      b.at - a.at || display(a.title, 'en').localeCompare(display(b.title, 'en'), 'ja'))
     const rows: Board['rows'] = []
     let size = 0
     for (const row of sorted) {
@@ -54,9 +55,9 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
     const entries = history.get(row.id) ?? []
     history.set(row.id, [...entries.slice(-99), move])
     try {
-      if (!await notify(row, move)) notificationIssue = 'Orcaが通知を配信できませんでした'
+      if (!await notify(row, move)) notificationIssue = copy('Orca could not deliver the notification.', 'Orcaが通知を配信できませんでした')
     } catch {
-      notificationIssue = 'Orcaの通知呼び出しに失敗しました'
+      notificationIssue = copy('The Orca notification request failed.', 'Orcaの通知呼び出しに失敗しました')
     }
   }
 
@@ -75,7 +76,7 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
     for (const [key, source] of cache) {
       if (touched.has(key)) continue
       if (complete) cache.delete(key)
-      else cache.set(key, {...source, ok:false, issue:'再取得できません'})
+      else cache.set(key, {...source, ok:false, issue:copy('Could not refresh', '再取得できません')})
     }
     const current = allRows()
     const present = new Set([...cache.values()].flatMap(source => source.rows.map(row => row.id)))
@@ -102,7 +103,8 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
         }
       }
       return previous.state !== row.state ? [
-        transition(previous, row.state, row.at > previous.at ? row.at : clock(), row.source + ' 取得差分')
+        transition(previous, row.state, row.at > previous.at ? row.at : clock(),
+          joinCopy([sourceNames[row.source], copy('refresh', '取得差分')], ' '))
       ] : []
     }))
     for (const [index, row] of current.entries()) {
@@ -129,7 +131,7 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
     const to = sessionState(main.state, main.outcome)
     if (to === row.state) return false
     const wasVisible = withinActivityWindow(row.at, clock())
-    const move = transition(row, to, main.stateStartedAt, 'Orca イベント')
+    const move = transition(row, to, main.stateStartedAt, copy('Orca event', 'Orca イベント'))
     eventAt.set(row.id, move.at)
     row.state = to
     row.at = Math.max(row.at, move.at)
@@ -139,12 +141,12 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
   }
 
   async function detail(id: string, questionId?: string): Promise<Detail> {
-    const missing = { transitions: [], issue: '対象を取得できません' }
+    const missing = { transitions: [], issue: copy('Session unavailable', '対象を取得できません') }
     const find = () => allRows().find(item => item.id === id)
     const row = find()
     if (!row) return missing
     const transitions = [...(history.get(id) ?? [])].reverse()
-    if (row.stale) return { transitions, issue: '対象の最新情報を取得できません。更新して再試行してください。' }
+    if (row.stale) return { transitions, issue: copy('Could not load the latest details. Select Refresh to try again.', '対象の最新情報を取得できません。更新して再試行してください。') }
     const current = () => withinActivityWindow(row.at, clock()) && find()?.stale === false
     const guarded: Cli = (...args) => current() ? run(...args) : Promise.reject(new Error('outside_activity_window'))
     try {
@@ -155,7 +157,7 @@ export function createMonitor(run: Cli, notify: (row: Row, move: Transition) => 
     } catch {
       if (!current()) return missing
       return {
-        transitions, issue: 'Bot Itemの詳細を取得できません。更新して再試行してください。',
+        transitions, issue: copy('Could not load Bot Item details. Select Refresh to try again.', 'Bot Itemの詳細を取得できません。更新して再試行してください。'),
         questionStatus:row.state === 'input' ? 'unverified' : undefined
       }
     }
@@ -174,8 +176,8 @@ function openBotHome(bot: string, signal: AbortSignal): Promise<boolean> {
   })
 }
 
-export async function openBoard(run: Cli, signal: AbortSignal): Promise<string> {
-  if (signal.aborted) return 'セッションボードを開けませんでした。'
+export async function openBoard(run: Cli, signal: AbortSignal, currentLanguage = () => 'en' as Language): Promise<string> {
+  if (signal.aborted) return display(copy('Could not open Session Board.', 'セッションボードを開けませんでした。'), currentLanguage())
   try {
     const data = await run('plugin', 'list')
     const pluginKey = 'yoshhiide.session-board'
@@ -186,20 +188,23 @@ export async function openBoard(run: Cli, signal: AbortSignal): Promise<string> 
     if (plugins.length === 1 && !signal.aborted) {
       const result = await run('plugin', 'open', pluginKey, '--panel', 'session-board')
       if (result.kind === 'panel' && result.pluginKey === pluginKey && result.panelId === 'session-board') {
-        return 'セッションボードを開きました。'
+        return display(copy('Opened Session Board.', 'セッションボードを開きました。'), currentLanguage())
       }
     }
   } catch {
     // The right-sidebar tool remains available if the runtime cannot open a panel from a command.
   }
-  return 'セッションボードを開けませんでした。右側ツールから開いてください。'
+  return display(copy('Could not open Session Board. Open it from the right sidebar.',
+    'セッションボードを開けませんでした。右側ツールから開いてください。'), currentLanguage())
 }
 
 export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, openBot = openBotHome, clock = Date.now) {
+  let locale: Language = 'en'
+  const label = (value: Copy) => display(value, locale)
   const monitor = createMonitor(run, async (row, move) => {
     const result = await orca.host.call('notifications.show', {
-      title: states[move.to] + ' · ' + row.title,
-      body: states[move.from] + ' → ' + states[move.to] + ' · ' + row.origin
+      title: label(states[move.to]) + ' · ' + label(row.title),
+      body: label(states[move.from]) + ' → ' + label(states[move.to]) + ' · ' + label(row.origin)
     })
     return result.delivered
   }, clock)
@@ -237,7 +242,7 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
     return refresh
   }
   function background() {
-    void poll().catch(() => orca.log('セッションボードの取得処理に失敗しました'))
+    void poll().catch(() => orca.log(label(copy('Session Board refresh failed', 'セッションボードの取得処理に失敗しました'))))
   }
   function start() {
     if (!timer && interval > 0) {
@@ -266,16 +271,18 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
     if (!applied && (!monitor.board().sources.length ||
       withinActivityWindow(payload.mainAgent?.stateStartedAt, clock()))) background()
   })
-  orca.panels.handle('board.start', () => {
+  orca.panels.handle('board.start', input => {
+    locale = language(input?.locale)
     start()
     background()
     return monitor.board()
   })
-  orca.panels.handle('board.refresh', () => {
+  orca.panels.handle('board.refresh', input => {
+    locale = language(input?.locale)
     start()
     return poll()
   })
-  const command = orca.commands.register('open-board', (_args, {signal}) => openBoard(run, signal))
+  const command = orca.commands.register('open-board', (_args, {signal}) => openBoard(run, signal, () => locale))
   orca.panels.handle('board.detail', async ({id, questionId}) =>
     JSON.parse(JSON.stringify(await monitor.detail(id, questionId))) as Detail)
   orca.panels.handle('board.reply', async ({id, questionId, index}, {signal}) => {
@@ -295,7 +302,7 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
       const result = await nativeReply(run, target, stillCurrent, signal)
       return result === 'read-only' ? {opened:true,reason:'read-only' as const} : {opened:result}
     } catch (error) {
-      orca.log('標準の回答先を照合できませんでした: ' +
+      orca.log(label(copy('Could not verify the reply destination in Orca: ', '標準の回答先を照合できませんでした: ')) +
         (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : 'navigation_failed'))
       return {opened:false}
     } finally {

@@ -1,9 +1,9 @@
 {
   "manifestVersion": 2,
   "id": "session-board",
-  "name": "セッションボード",
-  "version": "0.2.7",
-  "description": "Botの仕事と通常セッションの状態をまとめて確認するサイドバー",
+  "name": "Session Board",
+  "version": "0.2.8",
+  "description": "Track Bot work and regular Orca sessions together in the sidebar.",
   "engines": {
     "orca": ">=1.4.277"
   },
@@ -14,7 +14,7 @@
     "panels": [
       {
         "id": "session-board",
-        "title": "セッションボード",
+        "title": "Session Board",
         "icon": "blocks",
         "entry": "dist/panel.html",
         "ui": "html"
@@ -23,7 +23,7 @@
     "commands": [
       {
         "id": "open-board",
-        "title": "セッションボードを開く"
+        "title": "Open Session Board"
       }
     ],
     "events": [
@@ -44,20 +44,20 @@
   "license": "MIT",
   "cover": {
     "path": "assets/cover.png",
-    "alt": "ダークテーマのセッションボード。入力待ち、作業中、完了の3列にBotの仕事、チャット、端末を表示。"
+    "alt": "Session Board in dark mode, with Bot work, chats, and terminals grouped into Needs input, In progress, and Done."
   },
   "screenshots": [
     {
       "path": "assets/list.png",
-      "alt": "Botの仕事と通常セッションを、入力待ち、作業中、完了の順にまとめたリスト。"
+      "alt": "List view of Bot work and regular sessions, grouped by status with Needs input first."
     },
     {
       "path": "assets/board.png",
-      "alt": "ライトテーマのボード表示。入力待ち、作業中、完了を横並びにし、Botの仕事に返信ボタンを表示。"
+      "alt": "Board view in light mode, with three status columns and a Reply button on Bot Items."
     },
     {
       "path": "assets/activity.png",
-      "alt": "入力待ちの詳細画面。Botからの質問と選択肢、標準画面で回答するボタン、Activityの会話を表示。"
+      "alt": "Bot Item details with a pending question, answer options, an Answer in Orca button, and the Activity conversation."
     }
   ]
 }

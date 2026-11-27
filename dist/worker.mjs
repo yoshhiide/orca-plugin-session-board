@@ -1,18 +1,46 @@
+// src/language.ts
+function language(locale) {
+  if (typeof locale !== "string") return "en";
+  try {
+    return new Intl.Locale(locale).language === "ja" ? "ja" : "en";
+  } catch {
+    return "en";
+  }
+}
+function copy(en, ja) {
+  return { en, ja };
+}
+function display(value, locale) {
+  return typeof value === "string" ? value : value[locale];
+}
+function joinCopy(parts, separator) {
+  return copy(
+    parts.map((part) => display(part, "en")).join(separator),
+    parts.map((part) => display(part, "ja")).join(separator)
+  );
+}
+
 // src/worker.ts
 import { execFile as execFile3 } from "node:child_process";
 
 // src/model.ts
 var states = {
-  input: "\u5165\u529B\u5F85\u3061",
-  working: "\u4F5C\u696D\u4E2D",
-  external: "\u5916\u90E8\u5F85\u3061",
-  blocked: "\u30D6\u30ED\u30C3\u30AF\u4E2D",
-  waiting: "\u5F85\u6A5F\u4E2D",
-  planned: "\u4E88\u5B9A",
-  failed: "\u5931\u6557",
-  done: "\u5B8C\u4E86",
-  cancelled: "\u4E2D\u6B62",
-  unknown: "\u72B6\u614B\u4E0D\u660E"
+  input: copy("Needs input", "\u5165\u529B\u5F85\u3061"),
+  working: copy("In progress", "\u4F5C\u696D\u4E2D"),
+  external: copy("Waiting externally", "\u5916\u90E8\u5F85\u3061"),
+  blocked: copy("Blocked", "\u30D6\u30ED\u30C3\u30AF\u4E2D"),
+  waiting: copy("Idle", "\u5F85\u6A5F\u4E2D"),
+  planned: copy("Planned", "\u4E88\u5B9A"),
+  failed: copy("Failed", "\u5931\u6557"),
+  done: copy("Done", "\u5B8C\u4E86"),
+  cancelled: copy("Canceled", "\u4E2D\u6B62"),
+  unknown: copy("Unknown", "\u72B6\u614B\u4E0D\u660E")
+};
+var sourceNames = {
+  "Bot Item": "Bot Item",
+  "Bot \u30EF\u30FC\u30AB\u30FC": copy("Bot worker", "Bot \u30EF\u30FC\u30AB\u30FC"),
+  "Orca \u30C1\u30E3\u30C3\u30C8": copy("Orca chat", "Orca \u30C1\u30E3\u30C3\u30C8"),
+  "Orca \u30BF\u30FC\u30DF\u30CA\u30EB": copy("Orca terminal", "Orca \u30BF\u30FC\u30DF\u30CA\u30EB")
 };
 var activityWindow = 120 * 60 * 60 * 1e3;
 function withinActivityWindow(at, now) {
@@ -130,9 +158,9 @@ var cli = (...args) => new Promise((resolve2, reject) => {
 });
 function errorLabel(error) {
   const code = error instanceof Error ? error.message : "";
-  if (code === "timeout") return "\u53D6\u5F97\u304C\u30BF\u30A4\u30E0\u30A2\u30A6\u30C8\u3057\u307E\u3057\u305F";
-  if (/^[a-z][a-z0-9_]{1,63}$/.test(code)) return "\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\uFF08" + code + "\uFF09";
-  return "\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093";
+  if (code === "timeout") return copy("Fetch timed out", "\u53D6\u5F97\u304C\u30BF\u30A4\u30E0\u30A2\u30A6\u30C8\u3057\u307E\u3057\u305F");
+  if (/^[a-z][a-z0-9_]{1,63}$/.test(code)) return copy("Could not fetch (" + code + ")", "\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\uFF08" + code + "\uFF09");
+  return copy("Could not fetch", "\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093");
 }
 async function capture(key, label, get) {
   try {
@@ -186,7 +214,7 @@ async function items(run, bot, origin, clock, settlements, hasWorkers) {
       rows.push({
         id: "item:" + bot + ":" + uid,
         source: "Bot Item",
-        title: text(item.title) || "Item",
+        title: text(item.title) || copy("Item", "\u9805\u76EE"),
         origin: origin + " \xB7 #" + String(item.number ?? uid),
         state,
         at,
@@ -259,7 +287,7 @@ async function workers(run, work, bot, origin, now, inventory, settlements) {
     const row = {
       id: "worker:" + bot + ":" + ref,
       source: "Bot \u30EF\u30FC\u30AB\u30FC",
-      title: text(entry.title) || "\u30EF\u30FC\u30AB\u30FC",
+      title: text(entry.title) || copy("Worker", "\u30EF\u30FC\u30AB\u30FC"),
       origin,
       state,
       at,
@@ -297,7 +325,7 @@ async function collect(run, clock = Date.now) {
   let complete = false;
   let membership = false;
   let terminalIssue;
-  const agentResult = capture("agents", "\u901A\u5E38\u30BB\u30C3\u30B7\u30E7\u30F3", async () => {
+  const agentResult = capture("agents", copy("Regular sessions", "\u901A\u5E38\u30BB\u30C3\u30B7\u30E7\u30F3"), async () => {
     const [data, terminals] = await Promise.all([
       run("agent", "list"),
       run("terminal", "list").then(async (value) => {
@@ -332,8 +360,8 @@ async function collect(run, clock = Date.now) {
       return [{
         id: agent.kind === "chat" ? "chat:" + id : "terminal:" + JSON.stringify([id, pane]),
         source: agent.kind === "chat" ? "Orca \u30C1\u30E3\u30C3\u30C8" : "Orca \u30BF\u30FC\u30DF\u30CA\u30EB",
-        title: text(agent.title) || text(agent.agent) || "\u30BB\u30C3\u30B7\u30E7\u30F3",
-        origin: text(agent.workspace) || text(agent.repo) || "\u3053\u306EMac",
+        title: text(agent.title) || text(agent.agent) || copy("Session", "\u30BB\u30C3\u30B7\u30E7\u30F3"),
+        origin: text(agent.workspace) || text(agent.repo) || copy("This Mac", "\u3053\u306EMac"),
         state: sessionState(agent.state),
         at,
         ref: id ? "orca_session_id:" + id : pane,
@@ -350,8 +378,8 @@ async function collect(run, clock = Date.now) {
       rows.push({
         id: "terminal-ui:" + handle,
         source: "Orca \u30BF\u30FC\u30DF\u30CA\u30EB",
-        title: text(terminal.title) || "\u30BF\u30FC\u30DF\u30CA\u30EB",
-        origin: text(terminal.branch) || "\u3053\u306EMac",
+        title: text(terminal.title) || copy("Terminal", "\u30BF\u30FC\u30DF\u30CA\u30EB"),
+        origin: text(terminal.branch) || copy("This Mac", "\u3053\u306EMac"),
         state: "unknown",
         at: terminal.lastOutputAt,
         ref: handle,
@@ -368,7 +396,7 @@ async function collect(run, clock = Date.now) {
     const bots = list(root.bots).filter((bot) => bot.server == null);
     complete = Array.isArray(root.unreachable) && root.unreachable.length === 0;
     membership = complete;
-    if (!complete) batches.push({ key: "bots", label: "Bot\u4E00\u89A7", ok: false, rows: [], issue: "\u4E00\u90E8\u306EBot\u306B\u63A5\u7D9A\u3067\u304D\u307E\u305B\u3093" });
+    if (!complete) batches.push({ key: "bots", label: copy("Bot list", "Bot\u4E00\u89A7"), ok: false, rows: [], issue: copy("Could not connect to some Bots", "\u4E00\u90E8\u306EBot\u306B\u63A5\u7D9A\u3067\u304D\u307E\u305B\u3093") });
     for (let i = 0; i < bots.length; i += 3) {
       await Promise.all(bots.slice(i, i + 3).map(async (entry) => {
         const bot = identifier(entry.id);
@@ -378,12 +406,12 @@ async function collect(run, clock = Date.now) {
         const hasWorkers = workResult.then((work) => work.length > 0, () => false);
         const itemResult = capture(
           bot + ":items",
-          origin + " / Item",
+          joinCopy([origin, copy("Items", "\u9805\u76EE")], " / "),
           () => items(run, bot, origin, clock, settlements, hasWorkers)
         );
         const [itemBatch, workerBatch, chats] = await Promise.all([
           itemResult,
-          capture(bot + ":workers", origin + " / \u30EF\u30FC\u30AB\u30FC", async () => {
+          capture(bot + ":workers", joinCopy([origin, copy("Workers", "\u30EF\u30FC\u30AB\u30FC")], " / "), async () => {
             const work = await workResult;
             if (!work.length) return [];
             inventory ??= workerInventory(run);
@@ -409,19 +437,19 @@ async function collect(run, clock = Date.now) {
   } catch (error) {
     complete = false;
     membership = false;
-    batches.push({ key: "bots", label: "Bot\u4E00\u89A7", ok: false, rows: [], issue: errorLabel(error) });
+    batches.push({ key: "bots", label: copy("Bot list", "Bot\u4E00\u89A7"), ok: false, rows: [], issue: errorLabel(error) });
   }
   const agents = await agentResult;
   if (!membership && agents.ok) {
     agents.ok = false;
-    agents.issue = "Bot\u3078\u306E\u6240\u5C5E\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093";
+    agents.issue = copy("Could not verify Bot ownership", "Bot\u3078\u306E\u6240\u5C5E\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093");
   }
   agents.rows = agents.rows.filter((row) => !botSessions.has(row.ref.replace(/^orca_session_id:/, "")) && !(row.workspace && uncertainWorkspaces.has(row.workspace) && row.pane?.startsWith("structured-agent-session-")) && !(row.pane && botPanes.has(row.pane)) && !(row.target && botHandles.has(row.target)));
   const plain = agents.rows.filter((row) => row.id.startsWith("terminal-ui:"));
   agents.rows = agents.rows.filter((row) => !row.id.startsWith("terminal-ui:"));
   batches.push(agents, {
     key: "terminal-list",
-    label: "\u30BF\u30FC\u30DF\u30CA\u30EB\u4E00\u89A7",
+    label: copy("Terminal list", "\u30BF\u30FC\u30DF\u30CA\u30EB\u4E00\u89A7"),
     ok: agents.ok && !terminalIssue,
     rows: plain,
     issue: terminalIssue ?? agents.issue
@@ -462,7 +490,7 @@ function itemTransitions(events, after) {
     const at = time(event.at);
     if (at && from !== to && id !== after) entries.push({
       id,
-      transition: { from, to, at, via: "Bot Item \u5C65\u6B74" }
+      transition: { from, to, at, via: copy("Bot Item history", "Bot Item \u5C65\u6B74") }
     });
   }
   return entries;
@@ -555,7 +583,7 @@ async function itemImage(value, root = join(homedir(), "Library", "Application S
 }
 
 // src/conversation.ts
-var commentSource = "Bot Item \u306E\u30B3\u30E1\u30F3\u30C8";
+var commentSource = copy("Bot Item comments", "Bot Item \u306E\u30B3\u30E1\u30F3\u30C8");
 var bodiesLimit = 32e3;
 function body(value) {
   return typeof value === "string" && value.trim() ? value : "";
@@ -575,7 +603,7 @@ function recent(source, entries, limited) {
   return {
     source,
     entries: visible.reverse(),
-    issue: limited || entries.length > visible.length || remaining < 0 ? "\u53D6\u5F97\u3057\u305F\u5C65\u6B74\u306E\u4E00\u90E8\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002" : void 0
+    issue: limited || entries.length > visible.length || remaining < 0 ? copy("Showing part of the retrieved history.", "\u53D6\u5F97\u3057\u305F\u5C65\u6B74\u306E\u4E00\u90E8\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002") : void 0
   };
 }
 function decisions(value, isAsk) {
@@ -689,7 +717,10 @@ async function itemActivity(events, snapshot, partial) {
   });
   const activity = recent(commentSource, entries, partial || newest.length < comments.length);
   if (attachments.length !== visible.filter((entry) => entry.preview).length) {
-    activity.issue = [activity.issue, "\u4E00\u90E8\u306E\u6DFB\u4ED8\u753B\u50CF\u306FOrca\u6A19\u6E96\u306E\u9805\u76EE\u3067\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"].filter(Boolean).join(" ");
+    activity.issue = joinCopy([
+      ...activity.issue ? [activity.issue] : [],
+      copy("Open the Item in Orca to see the remaining attachments.", "\u4E00\u90E8\u306E\u6DFB\u4ED8\u753B\u50CF\u306FOrca\u6A19\u6E96\u306E\u9805\u76EE\u3067\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002")
+    ], " ");
   }
   return activity;
 }
@@ -698,17 +729,17 @@ function itemSpeaker(actor, item) {
   const maker = optional(item.madeBy);
   switch (actor.kind) {
     case "owner":
-      return { author: "\u3042\u306A\u305F", speaker: { side: "owner", id: "owner" } };
+      return { author: copy("You", "\u3042\u306A\u305F"), speaker: { side: "owner", id: "owner" } };
     case "orca":
       return { author: "Orca", kind: "system" };
     case "bot": {
       const id = typeof actor.botId === "string" && actor.botId;
-      if (!id) return { author: "Bot" };
-      const author = id === owner.botId ? text(owner.name) || "Bot" : id === maker.botId ? text(maker.name) || "Bot" : "\u5225\u306EBot";
+      if (!id) return { author: copy("Bot", "\u5BFE\u8C61Bot") };
+      const author = id === owner.botId ? text(owner.name) || copy("Bot", "\u5BFE\u8C61Bot") : id === maker.botId ? text(maker.name) || copy("Bot", "\u5BFE\u8C61Bot") : copy("Another Bot", "\u5225\u306EBot");
       return { author, speaker: { side: "agent", id } };
     }
     default:
-      return { author: "\u767A\u8A00\u8005\u4E0D\u660E" };
+      return { author: copy("Unknown speaker", "\u767A\u8A00\u8005\u4E0D\u660E") };
   }
 }
 async function botDetail(run, row, observed, shownQuestion, current = () => true) {
@@ -739,15 +770,16 @@ async function botDetail(run, row, observed, shownQuestion, current = () => true
   const answered = previous && unique.some((event) => event.kind === "commented" && optional(event.actor).kind === "owner" && optional(event.data).answers === previous);
   const questionStatus = changed && question ? "replaced" : changed && answered && state !== "input" ? "answered" : !question && (state === "input" || previous) ? "unverified" : void 0;
   if (question && targets.length && !answered && process.platform === "darwin") question.targets = targets;
-  const botName = text(optional(snapshot.owner).name) || row.bot || "\u5BFE\u8C61Bot";
+  const botName = text(optional(snapshot.owner).name) || row.bot || copy("Bot", "\u5BFE\u8C61Bot");
   const itemName = typeof snapshot.number === "number" ? "#" + String(snapshot.number) : row.ref;
-  const home = "Bot\u300C" + botName + "\u300D\u306E Home";
-  const step = state === "input" ? " \u2192 \u5165\u529B\u5F85\u3061 \u2192 " : " \u2192 \u9805\u76EE \u2192 ";
+  const home = copy("Bot \u201C" + botName + "\u201D Home", "Bot\u300C" + botName + "\u300D\u306E Home");
+  const step = state === "input" ? copy("Needs you", "\u5165\u529B\u5F85\u3061") : copy("Items", "\u9805\u76EE");
+  const itemTitle = text(snapshot.title);
   const snoozed = time(snapshot.snoozedUntil) > Date.now();
   if (!current()) throw new Error("outside_activity_window");
   const [canOpen, relatedActivity, activity] = await Promise.all([
     row.bot && !snoozed ? uniqueLocalBot(run, row.bot).catch(() => false) : false,
-    relatedBotConversation(run, row, optional(snapshot.chat), botName),
+    relatedBotConversation(run, row, optional(snapshot.chat), display(botName, "en")),
     itemActivity(unique, snapshot, Boolean(page.next))
   ]);
   const transitions = itemTransitions(unique).map((entry) => entry.transition).sort((a, b) => b.at - a.at);
@@ -767,9 +799,17 @@ async function botDetail(run, row, observed, shownQuestion, current = () => true
     reason: state === "external" ? text(optional(snapshot.wait).text ?? optional(snapshot.wait).reason, Infinity) || void 0 : void 0,
     activity,
     relatedActivity,
-    issue: page.next ? "Bot Item\u5C65\u6B74\u306E\u4E00\u90E8\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002" : void 0,
+    issue: page.next ? copy("Showing part of the Bot Item history.", "Bot Item\u5C65\u6B74\u306E\u4E00\u90E8\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002") : void 0,
     action: canOpen ? "bot-home" : void 0,
-    navigationHint: snoozed ? home + " \u306E\u9805\u76EE\u3067 " + itemName + " \u306E\u30B9\u30CC\u30FC\u30BA\u72B6\u614B\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002" : home + step + itemName + "\u300C" + text(snapshot.title) + "\u300D" + (question ? " \u2192 \u8CEA\u554F\u30AB\u30FC\u30C9" : "")
+    navigationHint: snoozed ? copy(
+      "Open " + display(home, "en") + " and check whether " + itemName + " is still snoozed.",
+      display(home, "ja") + " \u306E\u9805\u76EE\u3067 " + itemName + " \u306E\u30B9\u30CC\u30FC\u30BA\u72B6\u614B\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+    ) : joinCopy([
+      home,
+      step,
+      copy(itemName + " \u201C" + itemTitle + "\u201D", itemName + "\u300C" + itemTitle + "\u300D"),
+      ...question ? [copy("Question card", "\u8CEA\u554F\u30AB\u30FC\u30C9")] : []
+    ], " \u2192 ")
   };
 }
 async function uniqueLocalBot(run, botId) {
@@ -781,7 +821,7 @@ async function uniqueLocalBot(run, botId) {
 async function relatedBotConversation(run, row, chat, botName) {
   const id = text(chat.id, 256);
   if (!row.bot || !id || chat.gone === true) return;
-  const source = "Bot \u30C1\u30E3\u30C3\u30C8";
+  const source = copy("Bot chat", "Bot \u30C1\u30E3\u30C3\u30C8");
   try {
     const data = await run("bot", "chats", "--bot", row.bot, "--all");
     const matches = list(data.chats).filter((entry) => entry.id === id);
@@ -790,10 +830,10 @@ async function relatedBotConversation(run, row, chat, botName) {
     const activity = await agentConversation(run, "orca_session_id:" + identifier(id), "chat", source);
     const title = text(conversation.title);
     if (conversation.closed === false) {
-      const home = "Bot\u300C" + botName + "\u300D\u306E";
-      if (conversation.home === true) activity.navigationHint = home + "Home Chat\u304C\u5143\u306E\u4F1A\u8A71\u3067\u3059\u3002";
+      const home = copy("Bot \u201C" + botName + "\u201D", "Bot\u300C" + botName + "\u300D");
+      if (conversation.home === true) activity.navigationHint = joinCopy([home, "Home Chat"], " \u2192 ");
       else if (title && list(data.chats).filter((entry) => text(entry.title) === title && entry.closed === false).length === 1) {
-        activity.navigationHint = home + "Chats\u306B\u3042\u308B\u300C" + title + "\u300D\u304C\u5143\u306E\u4F1A\u8A71\u3067\u3059\u3002";
+        activity.navigationHint = joinCopy([home, "Chats", copy("\u201C" + title + "\u201D", "\u300C" + title + "\u300D")], " \u2192 ");
       }
     }
     return activity;
@@ -804,13 +844,13 @@ async function relatedBotConversation(run, row, chat, botName) {
 function chatSpeaker(value) {
   switch (value) {
     case "user":
-      return { author: "\u3042\u306A\u305F", speaker: { side: "owner", id: "user" } };
+      return { author: copy("You", "\u3042\u306A\u305F"), speaker: { side: "owner", id: "user" } };
     case "assistant":
-      return { author: "\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8", speaker: { side: "agent", id: "assistant" } };
+      return { author: copy("Agent", "\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8"), speaker: { side: "agent", id: "assistant" } };
     case "system":
-      return { author: "\u30B7\u30B9\u30C6\u30E0", kind: "system" };
+      return { author: copy("System", "\u30B7\u30B9\u30C6\u30E0"), kind: "system" };
     default:
-      return { author: "\u767A\u8A00\u8005\u4E0D\u660E" };
+      return { author: copy("Unknown speaker", "\u767A\u8A00\u8005\u4E0D\u660E") };
   }
 }
 function sameSession(value, ref) {
@@ -836,7 +876,7 @@ async function agentConversation(run, ref, kind, source) {
       if (consecutive && previous?.kind === "image-view" && sameDay(previous.at, at)) {
         previous.count = (previous.count ?? 1) + 1;
       } else {
-        messages.push({ author: "\u753B\u50CF\u95B2\u89A7", body: "", at, kind: "image-view", count: 1 });
+        messages.push({ author: copy("Image viewed", "\u753B\u50CF\u95B2\u89A7"), body: "", at, kind: "image-view", count: 1 });
       }
       consecutive = true;
       continue;
@@ -846,7 +886,7 @@ async function agentConversation(run, ref, kind, source) {
     if (entry.kind === "message") messages.push({ ...chatSpeaker(entry.role), body: message, at });
     if (entry.kind === "question") messages.push({
       ...chatSpeaker("assistant"),
-      author: "\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u306E\u8CEA\u554F",
+      author: copy("Agent question", "\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u306E\u8CEA\u554F"),
       body: message,
       at
     });
@@ -855,10 +895,11 @@ async function agentConversation(run, ref, kind, source) {
 }
 async function sessionDetail(run, row) {
   const chat = row.source === "Orca \u30C1\u30E3\u30C3\u30C8";
-  const source = chat ? "Orca \u30C1\u30E3\u30C3\u30C8" : row.target === row.ref ? "\u7AEF\u672B\u51FA\u529B" : "\u7AEF\u672B\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u306E\u4F1A\u8A71";
+  const terminalOutput = !chat && row.target === row.ref;
+  const source = chat ? sourceNames[row.source] : terminalOutput ? copy("Terminal output", "\u7AEF\u672B\u51FA\u529B") : copy("Terminal agent conversation", "\u7AEF\u672B\u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u306E\u4F1A\u8A71");
   const detail = {};
   if (chat && row.ref.startsWith("orca_session_id:")) {
-    const unverified = "\u540C\u3058\u30C1\u30E3\u30C3\u30C8\u306E\u30BF\u30D6\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3002\u6240\u5C5E\u3068\u30BF\u30A4\u30C8\u30EB\u3092\u78BA\u8A8D\u3057\u3066Orca\u306E\u65E2\u5B58\u30BF\u30D6\u3092\u63A2\u3057\u3066\u304F\u3060\u3055\u3044\u3002";
+    const unverified = copy("Could not verify the matching chat tab. Look for the existing tab in Orca using its workspace and title.", "\u540C\u3058\u30C1\u30E3\u30C3\u30C8\u306E\u30BF\u30D6\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3002\u6240\u5C5E\u3068\u30BF\u30A4\u30C8\u30EB\u3092\u78BA\u8A8D\u3057\u3066Orca\u306E\u65E2\u5B58\u30BF\u30D6\u3092\u63A2\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
     detail.navigationHint = unverified;
     try {
       const session2 = await run("agent", "show", row.ref);
@@ -867,7 +908,10 @@ async function sessionDetail(run, row) {
       if (matches.length === 1 && row.pane && row.workspace) {
         const tab = text(matches[0].title) || row.title;
         const where = [text(matches[0].repo), text(matches[0].workspace)].filter(Boolean).join(" / ") || row.origin;
-        detail.navigationHint = "Orca\u306E\u30B8\u30E3\u30F3\u30D7\u30D1\u30EC\u30C3\u30C8\uFF08\u65E2\u5B9A \u2318J\uFF09\u3067\u300C" + tab + "\u300D\u3092\u691C\u7D22\u3057\u3001\u3053\u306EMac\u306E\u300C" + where + "\u300D\u306B\u3042\u308B\u65E2\u5B58\u30C1\u30E3\u30C3\u30C8\u3092\u958B\u304D\u307E\u3059\u3002";
+        detail.navigationHint = copy(
+          "Search for \u201C" + display(tab, "en") + "\u201D in the Orca jump palette (\u2318J by default) and open the existing chat in \u201C" + display(where, "en") + "\u201D on this Mac.",
+          "Orca\u306E\u30B8\u30E3\u30F3\u30D7\u30D1\u30EC\u30C3\u30C8\uFF08\u65E2\u5B9A \u2318J\uFF09\u3067\u300C" + display(tab, "ja") + "\u300D\u3092\u691C\u7D22\u3057\u3001\u3053\u306EMac\u306E\u300C" + display(where, "ja") + "\u300D\u306B\u3042\u308B\u65E2\u5B58\u30C1\u30E3\u30C3\u30C8\u3092\u958B\u304D\u307E\u3059\u3002"
+        );
       }
     } catch {
     }
@@ -876,7 +920,7 @@ async function sessionDetail(run, row) {
     if (row.target && await terminalMatches(run, row).catch(() => false)) detail.action = "terminal";
     if (row.ref.startsWith("orca_session_id:")) {
       detail.activity = await agentConversation(run, row.ref, chat ? "chat" : "terminal", source);
-    } else if (source === "\u7AEF\u672B\u51FA\u529B" && detail.action) {
+    } else if (terminalOutput && detail.action) {
       const data = record((await run("terminal", "read", "--terminal", row.ref, "--limit", "40")).terminal);
       if (data.handle !== row.ref || data.source !== "stream" || !Array.isArray(data.tail) || data.tail.some((line) => typeof line !== "string") || !await terminalMatches(run, row)) {
         throw new Error("source_mismatch");
@@ -884,7 +928,7 @@ async function sessionDetail(run, row) {
       detail.activity = recent(
         source,
         data.tail.length ? [{
-          author: "\u7AEF\u672B\u51FA\u529B",
+          author: copy("Terminal output", "\u7AEF\u672B\u51FA\u529B"),
           kind: "terminal-output",
           body: data.tail.join("\n")
         }] : [],
@@ -897,7 +941,7 @@ async function sessionDetail(run, row) {
   return detail;
 }
 async function workerConversation(run, row) {
-  const source = "Bot \u30EF\u30FC\u30AB\u30FC\u306E\u4F1A\u8A71";
+  const source = copy("Bot worker conversation", "Bot \u30EF\u30FC\u30AB\u30FC\u306E\u4F1A\u8A71");
   try {
     const data = await run("orchestration", "worker-show", "--dispatch", row.ref, "--full");
     const worker = record(data.dispatch);
@@ -911,7 +955,10 @@ async function workerConversation(run, row) {
     const places = list(result.places ?? []).filter((place) => place.hostId === "local" && place.kind === result.kind && sameSession(place.orcaSessionId, ref) && text(place.title) && text(place.workspace));
     if (places.length === 1) {
       const place = places[0];
-      activity.navigationHint = "\u300C" + text(place.workspace) + "\u300D\u306B\u3042\u308B\u65E2\u5B58\u306E" + (result.kind === "chat" ? "\u30C1\u30E3\u30C3\u30C8" : "\u30BF\u30FC\u30DF\u30CA\u30EB") + "\u300C" + text(place.title) + "\u300D\u304C\u30EF\u30FC\u30AB\u30FC\u306E\u5165\u529B\u5148\u3067\u3059\u3002";
+      activity.navigationHint = copy(
+        "Reply in the existing " + (result.kind === "chat" ? "chat" : "terminal") + " \u201C" + text(place.title) + "\u201D in \u201C" + text(place.workspace) + "\u201D.",
+        "\u300C" + text(place.workspace) + "\u300D\u306B\u3042\u308B\u65E2\u5B58\u306E" + (result.kind === "chat" ? "\u30C1\u30E3\u30C3\u30C8" : "\u30BF\u30FC\u30DF\u30CA\u30EB") + "\u300C" + text(place.title) + "\u300D\u304C\u30EF\u30FC\u30AB\u30FC\u306E\u5165\u529B\u5148\u3067\u3059\u3002"
+      );
     }
     return activity;
   } catch (error) {
@@ -943,6 +990,7 @@ var groupNames = ["Needs you", "In progress", "Waiting", "Planned", "Snoozed", "
 var app = "com.stablyai.orca";
 var placeholder = "Reply in your own words, or pick an option";
 var homeToolbar = /^button (?:ホーム, 要対応 [0-9]+ 件|Home, [0-9]+ needs you|ホーム|Home)$/;
+var sessionBoardTool = /^button (?:Session Board|セッションボード)$/;
 var choiceText = (choice) => choice.detail ? choice.label + " " + choice.detail : choice.label;
 function one(values) {
   return values.length === 1 ? values[0] : void 0;
@@ -987,7 +1035,7 @@ function homeBack({ nodes }) {
     if (node.label !== "button \u30DB\u30FC\u30E0" && node.label !== "button Home") return false;
     const panel = node.parent;
     if (!panel?.parent || !/^(?:container|container ホーム|container Home)$/.test(panel.label)) return false;
-    return nodes.some((sibling) => sibling.parent === panel.parent && homeToolbar.test(sibling.label)) && nodes.some((sibling) => sibling.parent === panel.parent && sibling.label === "button \u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9") && nodes.some((heading) => under(heading, panel) && /^heading #[0-9]+ /.test(heading.label));
+    return nodes.some((sibling) => sibling.parent === panel.parent && homeToolbar.test(sibling.label)) && nodes.some((sibling) => sibling.parent === panel.parent && sessionBoardTool.test(sibling.label)) && nodes.some((heading) => under(heading, panel) && /^heading #[0-9]+ /.test(heading.label));
   }));
 }
 function itemScope(state, target) {
@@ -1095,7 +1143,7 @@ async function nativeReply(run, target, stillCurrent, signal) {
   if (!itemScope(state, target)) {
     const homeVisible = (view) => sameHome(view, target.bot) && !!(itemScope(view, target) || homePanel(view, target.bot) || homeBack(view));
     if (!homeVisible(state)) {
-      const tool = one(state.nodes.filter((node) => homeToolbar.test(node.label) && state.nodes.some((sibling) => sibling.parent === node.parent && sibling.label === "button \u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9")));
+      const tool = one(state.nodes.filter((node) => homeToolbar.test(node.label) && state.nodes.some((sibling) => sibling.parent === node.parent && sessionBoardTool.test(sibling.label))));
       if (!await press(state, tool)) return false;
       const home = await waitFor(homeVisible);
       if (!home) return false;
@@ -1180,7 +1228,7 @@ function createMonitor(run, notify, clock = Date.now) {
   }
   function board() {
     const records = [...cache.values()];
-    const sorted = allRows().sort((a, b) => Number(b.state === "input") - Number(a.state === "input") || b.at - a.at || a.title.localeCompare(b.title, "ja"));
+    const sorted = allRows().sort((a, b) => Number(b.state === "input") - Number(a.state === "input") || b.at - a.at || display(a.title, "en").localeCompare(display(b.title, "en"), "ja"));
     const rows = [];
     let size = 0;
     for (const row of sorted) {
@@ -1200,9 +1248,9 @@ function createMonitor(run, notify, clock = Date.now) {
     const entries = history.get(row.id) ?? [];
     history.set(row.id, [...entries.slice(-99), move]);
     try {
-      if (!await notify(row, move)) notificationIssue = "Orca\u304C\u901A\u77E5\u3092\u914D\u4FE1\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F";
+      if (!await notify(row, move)) notificationIssue = copy("Orca could not deliver the notification.", "Orca\u304C\u901A\u77E5\u3092\u914D\u4FE1\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F");
     } catch {
-      notificationIssue = "Orca\u306E\u901A\u77E5\u547C\u3073\u51FA\u3057\u306B\u5931\u6557\u3057\u307E\u3057\u305F";
+      notificationIssue = copy("The Orca notification request failed.", "Orca\u306E\u901A\u77E5\u547C\u3073\u51FA\u3057\u306B\u5931\u6557\u3057\u307E\u3057\u305F");
     }
   }
   async function ingest({ batches, complete }) {
@@ -1219,7 +1267,7 @@ function createMonitor(run, notify, clock = Date.now) {
     for (const [key, source] of cache) {
       if (touched.has(key)) continue;
       if (complete) cache.delete(key);
-      else cache.set(key, { ...source, ok: false, issue: "\u518D\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093" });
+      else cache.set(key, { ...source, ok: false, issue: copy("Could not refresh", "\u518D\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093") });
     }
     const current = allRows();
     const present = new Set([...cache.values()].flatMap((source) => source.rows.map((row) => row.id)));
@@ -1243,7 +1291,12 @@ function createMonitor(run, notify, clock = Date.now) {
         }
       }
       return previous.state !== row.state ? [
-        transition(previous, row.state, row.at > previous.at ? row.at : clock(), row.source + " \u53D6\u5F97\u5DEE\u5206")
+        transition(
+          previous,
+          row.state,
+          row.at > previous.at ? row.at : clock(),
+          joinCopy([sourceNames[row.source], copy("refresh", "\u53D6\u5F97\u5DEE\u5206")], " ")
+        )
       ] : [];
     }));
     for (const [index, row] of current.entries()) {
@@ -1267,7 +1320,7 @@ function createMonitor(run, notify, clock = Date.now) {
     const to = sessionState(main.state, main.outcome);
     if (to === row.state) return false;
     const wasVisible = withinActivityWindow(row.at, clock());
-    const move = transition(row, to, main.stateStartedAt, "Orca \u30A4\u30D9\u30F3\u30C8");
+    const move = transition(row, to, main.stateStartedAt, copy("Orca event", "Orca \u30A4\u30D9\u30F3\u30C8"));
     eventAt.set(row.id, move.at);
     row.state = to;
     row.at = Math.max(row.at, move.at);
@@ -1276,12 +1329,12 @@ function createMonitor(run, notify, clock = Date.now) {
     return true;
   }
   async function detail(id, questionId) {
-    const missing = { transitions: [], issue: "\u5BFE\u8C61\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093" };
+    const missing = { transitions: [], issue: copy("Session unavailable", "\u5BFE\u8C61\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093") };
     const find = () => allRows().find((item) => item.id === id);
     const row = find();
     if (!row) return missing;
     const transitions = [...history.get(id) ?? []].reverse();
-    if (row.stale) return { transitions, issue: "\u5BFE\u8C61\u306E\u6700\u65B0\u60C5\u5831\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002" };
+    if (row.stale) return { transitions, issue: copy("Could not load the latest details. Select Refresh to try again.", "\u5BFE\u8C61\u306E\u6700\u65B0\u60C5\u5831\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002") };
     const current = () => withinActivityWindow(row.at, clock()) && find()?.stale === false;
     const guarded = (...args) => current() ? run(...args) : Promise.reject(new Error("outside_activity_window"));
     try {
@@ -1291,7 +1344,7 @@ function createMonitor(run, notify, clock = Date.now) {
       if (!current()) return missing;
       return {
         transitions,
-        issue: "Bot Item\u306E\u8A73\u7D30\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+        issue: copy("Could not load Bot Item details. Select Refresh to try again.", "Bot Item\u306E\u8A73\u7D30\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
         questionStatus: row.state === "input" ? "unverified" : void 0
       };
     }
@@ -1308,8 +1361,8 @@ function openBotHome(bot, signal) {
     }, (error) => resolve2(!error));
   });
 }
-async function openBoard(run, signal) {
-  if (signal.aborted) return "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002";
+async function openBoard(run, signal, currentLanguage = () => "en") {
+  if (signal.aborted) return display(copy("Could not open Session Board.", "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002"), currentLanguage());
   try {
     const data = await run("plugin", "list");
     const pluginKey = "yoshhiide.session-board";
@@ -1317,18 +1370,23 @@ async function openBoard(run, signal) {
     if (plugins.length === 1 && !signal.aborted) {
       const result = await run("plugin", "open", pluginKey, "--panel", "session-board");
       if (result.kind === "panel" && result.pluginKey === pluginKey && result.panelId === "session-board") {
-        return "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u304D\u307E\u3057\u305F\u3002";
+        return display(copy("Opened Session Board.", "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u304D\u307E\u3057\u305F\u3002"), currentLanguage());
       }
     }
   } catch {
   }
-  return "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u53F3\u5074\u30C4\u30FC\u30EB\u304B\u3089\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002";
+  return display(copy(
+    "Could not open Session Board. Open it from the right sidebar.",
+    "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u53F3\u5074\u30C4\u30FC\u30EB\u304B\u3089\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"
+  ), currentLanguage());
 }
 function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = Date.now) {
+  let locale = "en";
+  const label = (value) => display(value, locale);
   const monitor = createMonitor(run, async (row, move) => {
     const result = await orca.host.call("notifications.show", {
-      title: states[move.to] + " \xB7 " + row.title,
-      body: states[move.from] + " \u2192 " + states[move.to] + " \xB7 " + row.origin
+      title: label(states[move.to]) + " \xB7 " + label(row.title),
+      body: label(states[move.from]) + " \u2192 " + label(states[move.to]) + " \xB7 " + label(row.origin)
     });
     return result.delivered;
   }, clock);
@@ -1367,7 +1425,7 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
     return refresh;
   }
   function background() {
-    void poll().catch(() => orca.log("\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u306E\u53D6\u5F97\u51E6\u7406\u306B\u5931\u6557\u3057\u307E\u3057\u305F"));
+    void poll().catch(() => orca.log(label(copy("Session Board refresh failed", "\u30BB\u30C3\u30B7\u30E7\u30F3\u30DC\u30FC\u30C9\u306E\u53D6\u5F97\u51E6\u7406\u306B\u5931\u6557\u3057\u307E\u3057\u305F"))));
   }
   function start() {
     if (!timer && interval > 0) {
@@ -1394,16 +1452,18 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
     });
     if (!applied && (!monitor.board().sources.length || withinActivityWindow(payload.mainAgent?.stateStartedAt, clock()))) background();
   });
-  orca.panels.handle("board.start", () => {
+  orca.panels.handle("board.start", (input) => {
+    locale = language(input?.locale);
     start();
     background();
     return monitor.board();
   });
-  orca.panels.handle("board.refresh", () => {
+  orca.panels.handle("board.refresh", (input) => {
+    locale = language(input?.locale);
     start();
     return poll();
   });
-  const command = orca.commands.register("open-board", (_args, { signal }) => openBoard(run, signal));
+  const command = orca.commands.register("open-board", (_args, { signal }) => openBoard(run, signal, () => locale));
   orca.panels.handle("board.detail", async ({ id, questionId }) => JSON.parse(JSON.stringify(await monitor.detail(id, questionId))));
   orca.panels.handle("board.reply", async ({ id, questionId, index }, { signal }) => {
     const row = monitor.board().rows.find((item) => item.id === id);
@@ -1419,7 +1479,7 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
       const result = await nativeReply(run, target, stillCurrent, signal);
       return result === "read-only" ? { opened: true, reason: "read-only" } : { opened: result };
     } catch (error) {
-      orca.log("\u6A19\u6E96\u306E\u56DE\u7B54\u5148\u3092\u7167\u5408\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: " + (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : "navigation_failed"));
+      orca.log(label(copy("Could not verify the reply destination in Orca: ", "\u6A19\u6E96\u306E\u56DE\u7B54\u5148\u3092\u7167\u5408\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: ")) + (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : "navigation_failed"));
       return { opened: false };
     } finally {
       replying = false;

@@ -9,10 +9,10 @@ await Promise.all([
   build({ ...shared, entryPoints: ['src/panel.ts'], platform: 'browser', outfile: 'dist/panel.js' }),
   copyFile('src/panel.css', 'dist/panel.css'),
   writeFile('dist/panel.html', `<!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>セッションボード</title>
+  <title>Session Board</title>
   <script type="module" src="./panel.js"></script>
 </head>
 <body></body>

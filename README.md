@@ -1,43 +1,44 @@
-# セッションボード
+# Session Board
 
-OrcaのサイドバーにBotの仕事と通常セッションをまとめて表示します。入力待ちを先頭にしたリストから、対象の絞り込み、検索、ボードへの切り替え、詳細と遷移履歴を利用できます。
+Track Bot work and regular Orca sessions together in the right sidebar. The list puts sessions that need input first. You can filter, search, switch to a board, and open a session to see its activity and state history.
 
-## インストール
+## Installation
 
-Orca 1.4.277以降のmacOS版で利用できます。Orcaの設定からプラグインを有効にし、Communityで「セッションボード」を検索します。GitHubのリリースタグを指定してインストールする方法もあります。
+Session Board runs in Orca 1.4.277 or later on macOS. Turn on plugins in Orca Settings, then look for **Session Board** in Community. You can also install a tagged GitHub release.
 
 ```sh
-orca plugin install yoshhiide/orca-plugin-session-board@v0.2.6 --json
+orca plugin install yoshhiide/orca-plugin-session-board@v0.2.8 --json
 ```
 
-インストール時に、発行元 `yoshhiide`、プラグインID `session-board`、実行プロファイル `trusted-worker` を確認します。CLIを使う場合は、表示された承認用コマンドでインストールを確定します。
+Check that the publisher is `yoshhiide`, the plugin ID is `session-board`, and the execution profile is `trusted-worker`. When installing through the CLI, use the approval command it returns to confirm the installation.
 
-## 権限とデータ
+## Permissions and data
 
-- `agent:read` はOrcaのエージェント状態イベントを受け取るために使います。
-- `notifications:show` は状態遷移をデスクトップ通知に表示するために使います。
-- ワーカーは利用者の権限で動き、ローカルのOrca CLIからBot、セッション、端末関連の情報を取得します。Orcaが管理するローカルのBot Item画像を表示する際は、対象ファイルを読み取ってプレビューを生成します。
-- 標準コメント欄への移動にはOrca Computer Useを利用します。この操作にはmacOSのアクセシビリティ許可が必要です。コメントはOrcaの標準画面で利用者が入力・送信します。
-- プラグインは取得した内容を外部サービスへ転送したり、分析データを送信したりしません。
+- `agent:read` receives Orca agent state events.
+- `notifications:show` delivers desktop notifications for state changes.
+- The worker runs with your user permissions. It uses the local Orca CLI to read Bot, session, and terminal information. It reads Orca-managed local image files to create Bot Item attachment previews.
+- Opening Orca's reply composer uses Orca Computer Use and requires macOS Accessibility permission. You write and send replies in Orca.
+- The plugin keeps data local and does not send analytics.
 
-## 利用
+## Use
 
-Orca 1.4.277以降のmacOS版で、右側ツールの「セッションボード」から開きます。右サイドバーを閉じている場合は先に表示します。ジャンプパレット（macOSの既定は ⌘J）から「セッションボードを開く」を検索して選ぶ方法もあります。
+Open **Session Board** from the right sidebar. You can also find **Open Session Board** in the Orca jump palette (⌘J by default on macOS).
 
-- 一覧では「入力待ち」が先頭に並びます。行を開くと、同じパネルでActivityと状態履歴を切り替えられます。Escまたは「セッション一覧」で戻ると元の行にフォーカスします。横幅はOrcaの右サイドバーで調整できます。
-- Bot Itemはリストとボードの行右端、または詳細の「返信」から、同じ項目のOrca標準コメント欄を開きます。未回答の質問が1件ならその質問に直接移動し、複数ある場合は詳細で質問を選びます。移動にはOrca Computer Useのアクセシビリティ許可と操作可能なOrcaウィンドウが必要です。既存の下書きや選択済みの回答候補がある場合は、質問の切り替えを中止します。
-- 通常チャットは、詳細に表示されたタブ名と所属からOrcaのジャンプパレットで既存タブを探せます。画面と照合できた端末は「ターミナルを開く」で同じ端末へ移動します。
+- Use **List** or **Board** to group sessions by state. Open a row to switch between **Activity** and **State history**. Use Esc or **Sessions** to return focus to the original row. Resize the right sidebar to adjust the panel width.
+- Select **Reply** on a Bot Item row or in its details to open Orca's composer. A single unanswered question opens directly. For multiple questions, select a question from the details. This needs an accessible Orca window and macOS Accessibility permission. If a draft or an answer choice is already present, the plugin leaves the current question selected.
+- For a regular chat, use the tab name and workspace shown in the details to find the existing tab in Orca's jump palette. For a verified terminal, use **Open terminal** to return to it.
+- The panel uses Japanese when Orca reports a Japanese display language and English otherwise. Reopen the panel after changing Orca's display language to apply it to the panel and subsequent notifications. Session titles, messages, questions, and terminal output appear in their original language.
 
-## 取得と通知
+## Refresh and notifications
 
-- このMacの公開CLIからBot Item、ワーカー、Botチャットの所有情報、通常セッションを取得します。Itemに紐づくワーカーはItemにまとめます。Bot所属が確認できないときは、通常セッションの前回表示に取得不能を表示します。
-- 一覧・ボード・詳細の対象は、全種別・全状態で、最終更新が直近120時間以内と確認できる項目です。ちょうど120時間前の更新は含みます。時間が過ぎると入力待ちも一覧・件数から消え、開いていた詳細は閉じます。新しい更新があれば再び表示します。対象内の会話・状態履歴には既存の取得上限を使います。
-- 通常ターミナルはOrcaの状態イベントを優先します。Botと通常チャットは15秒ごとに取得し、Bot Itemは公式履歴から連続した状態遷移を読み取ります。差分取得に頼る箇所では、取得間隔内で完結した遷移が欠ける場合があります。
-- 検出した状態遷移をOrcaのデスクトップ通知に送ります。起動時、消失後の再出現、取得エラーからの復帰時は取得結果を比較の基準にします。パネルを一度開くとワーカー稼働中に非表示でも監視を続けます。Orcaやワーカーが終了している間は監視が止まります。
-- Activityは詳細を開いたときに取得し、Bot Itemのコメント、照合したBotチャット、通常チャット、端末エージェントの会話、端末出力をそれぞれの出典で表示します。会話は利用者とエージェントの発言を左右の吹き出しで区別し、時刻のある発言には日付と時刻を表示します。日時不明の記録を含む出典ではその旨を表示します。画像閲覧の記録と端末出力は専用の行で表示します。取得件数や転送上限に達したときは取得範囲を示します。状態履歴にはItemの公式履歴または稼働中に観測した直近100件を表示します。会話や端末出力を永続ストレージへ保存しません。
-- 「取得状況」で各ソースの最終成功時刻と取得エラーを確認できます。取得量やパネルへの転送サイズが制限に達した場合も、この欄に表示します。
+- Session Board reads Bot Items, workers, Bot chat ownership, and regular sessions from Orca's CLI on this Mac. A worker linked to an Item is grouped with that Item. If Bot ownership cannot be verified, previously fetched regular sessions are marked unavailable.
+- The list, board, and details use the same 120-hour window, including updates exactly 120 hours old. A session drops out of the list and count once it ages out and its open detail view closes. A fresh update brings it back. Activity and state history are subject to retrieval limits.
+- Regular terminals use Orca state events where available. Bot work and regular chats refresh every 15 seconds. Session Board uses Orca's Bot Item history for consecutive state changes. Brief changes can be missed where detection relies on the difference between refreshes.
+- Orca sends desktop notifications for detected state changes. On startup, after a session reappears, or after a fetch recovers, the latest result becomes the comparison baseline. After the panel has been opened once, monitoring continues while the worker runs, even when the panel is closed. The worker uses the most recent language supplied by the panel, with English as its startup fallback.
+- Activity loads when you open a session. It identifies Bot Item comments, verified Bot and regular chats, terminal agent conversations, and terminal output by source. Owner and agent messages use opposite sides. The panel groups messages by date, shows message times when available, and calls out missing timestamps. Image-view events and terminal output have dedicated rows. When retrieval or transfer limits apply, the panel reports partial results. State history shows the official Item history or the last 100 observed changes. The plugin does not write conversation or terminal output to persistent storage.
+- **Source status** shows when each source last refreshed successfully, along with fetch errors and retrieval or transfer limits.
 
-## 開発
+## Development
 
 ```sh
 npm ci
@@ -49,10 +50,10 @@ orca plugin test . --json
 orca plugin check . --json
 ```
 
-`src/` に実装と合成データを用いたテストを置いています。`dist/` はタグからOrcaが直接読み込むビルド成果物です。実装を変更したら `npm run build` で再生成します。
+Source and tests with synthetic data are in `src/`. Orca loads the built files in `dist/` directly from the release tag. Run `npm run build` after changing the source.
 
-開発時に使用する [esbuild](https://github.com/evanw/esbuild) と [Node.js型定義](https://www.npmjs.com/package/@types/node) はMIT、[TypeScript](https://github.com/microsoft/TypeScript) はApache-2.0です。これらのツールや型定義は実行用バンドルに含まれません。パネルの `blocks` アイコンはOrcaの組み込みアイコンを参照します。
+[esbuild](https://github.com/evanw/esbuild) and [Node.js type definitions](https://www.npmjs.com/package/@types/node) are MIT-licensed. [TypeScript](https://github.com/microsoft/TypeScript) uses Apache-2.0. These development tools and types are excluded from the runtime bundles. The panel uses Orca's built-in `blocks` icon.
 
-## ライセンス
+## License
 
 [MIT](LICENSE)

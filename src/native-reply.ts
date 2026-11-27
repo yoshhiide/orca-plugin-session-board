@@ -20,6 +20,7 @@ type AxState = { nodes: AxNode[]; focused: string; disabled: Set<string> }
 const app = 'com.stablyai.orca'
 const placeholder = 'Reply in your own words, or pick an option'
 const homeToolbar = /^button (?:ホーム, 要対応 [0-9]+ 件|Home, [0-9]+ needs you|ホーム|Home)$/
+const sessionBoardTool = /^button (?:Session Board|セッションボード)$/
 const choiceText = (choice: ReplyChoice) => choice.detail ? choice.label + ' ' + choice.detail : choice.label
 
 function one<T>(values: T[]): T | undefined {
@@ -77,7 +78,7 @@ function homeBack({nodes}: AxState): AxNode | undefined {
     const panel = node.parent
     if (!panel?.parent || !/^(?:container|container ホーム|container Home)$/.test(panel.label)) return false
     return nodes.some(sibling => sibling.parent === panel.parent && homeToolbar.test(sibling.label)) &&
-      nodes.some(sibling => sibling.parent === panel.parent && sibling.label === 'button セッションボード') &&
+      nodes.some(sibling => sibling.parent === panel.parent && sessionBoardTool.test(sibling.label)) &&
       nodes.some(heading => under(heading, panel) && /^heading #[0-9]+ /.test(heading.label))
   }))
 }
@@ -209,7 +210,7 @@ export async function nativeReply(
       !!(itemScope(view, target) || homePanel(view, target.bot) || homeBack(view))
     if (!homeVisible(state)) {
       const tool = one(state.nodes.filter(node => homeToolbar.test(node.label) &&
-        state.nodes.some(sibling => sibling.parent === node.parent && sibling.label === 'button セッションボード')))
+        state.nodes.some(sibling => sibling.parent === node.parent && sessionBoardTool.test(sibling.label))))
       if (!await press(state, tool)) return false
       const home = await waitFor(homeVisible)
       if (!home) return false

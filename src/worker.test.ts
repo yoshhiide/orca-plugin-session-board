@@ -1,3 +1,4 @@
+import { display, language } from './language'
 import { assert, mountWorker, test } from 'orca/testing'
 import type { OrcaWorkerApi } from 'orca/worker'
 import { collect, itemHistory, type Cli } from './sources'
@@ -96,7 +97,8 @@ const mockCli = (change: { denyBot?: boolean; handle?: string; chatId?:string; i
       {kind:'chat',hostId:'local',updatedAt:100,orcaSessionId:'orca_session_id:bot-chat',title:'Bot'},
       {kind:'chat',hostId:'local',updatedAt:100,orcaSessionId:'orca_session_id:other-chat',title:'通常'},
       {kind:'terminal',hostId:'local',updatedAt:100,orcaSessionId:'orca_session_id:worker',paneKey:'worker-pane'},
-      {kind:'terminal',hostId:'local',updatedAt:100,orcaSessionId:'orca_session_id:normal',paneKey:'pane',worktreeId:'workspace'}
+      {kind:'terminal',hostId:'local',updatedAt:100,orcaSessionId:'orca_session_id:normal',paneKey:'pane',worktreeId:'workspace',
+        state:'working', title:terminal.title, workspace:terminal.origin}
     ]}
     case 'terminal list': return {terminals:[
       {handle:change.handle ?? 'term_sample',recordedPaneKey:'pane',executionHostId:'local',worktreeId:'workspace',
@@ -242,7 +244,7 @@ test('詳細は質問の差替えと回答を区別し、Botの異なるItemを�
   assert.equal(answered.questionStatus, 'answered')
   assert.equal(answered.state, 'working')
   assert.equal(answered.question, undefined)
-  assert.deepEqual(answered.activity?.entries.slice(1).map(entry => [entry.author,entry.speaker?.id,entry.at]), [
+  assert.deepEqual(answered.activity?.entries.slice(1).map(entry => [display(entry.author, 'ja'),entry.speaker?.id,entry.at]), [
     ['あなた','owner',130], ['別のBot','visitor1',undefined], ['別のBot','visitor2',140], ['発言者不明',undefined,150]
   ])
   mode = 'mismatch'
@@ -262,16 +264,16 @@ test('通常チャットには一致したタブの案内と実際に得た発�
   const monitor = createMonitor(run, async () => true, fixedNow)
   await monitor.ingest(snapshot([row]))
   const detail = await monitor.detail(row.id)
-  assert.ok(detail.navigationHint?.includes('既存チャット'))
+  assert.ok(detail.navigationHint && display(detail.navigationHint, 'ja').includes('既存チャット'))
   assert.equal(detail.action, undefined)
-  assert.deepEqual(detail.activity?.entries, [{
+  assert.deepEqual(detail.activity?.entries.map(entry => ({...entry, author:display(entry.author, 'ja')})), [{
     author:'エージェント',speaker:{side:'agent',id:'assistant'},body:'確認しました',at:undefined
   }])
   assert.ok(detail.activity?.issue)
   readFrom = 'orca_session_id:wrong'
   const wrong = await monitor.detail(row.id)
   assert.equal(wrong.activity?.entries.length, 0)
-  assert.ok(wrong.activity?.issue?.includes('source_mismatch'))
+  assert.ok(wrong.activity?.issue && display(wrong.activity.issue, 'en').includes('source_mismatch'))
 })
 
 test('Codexの画像閲覧をまとめ、実際の発言・順序・取得済み時刻を維持する', async () => {
@@ -291,7 +293,7 @@ test('Codexの画像閲覧をまとめ、実際の発言・順序・取得済み
   const monitor = createMonitor(run, async () => true, fixedNow)
   await monitor.ingest(snapshot([row]))
   const ends = (await monitor.detail(row.id)).activity?.entries
-  assert.deepEqual(ends?.map(entry => [entry.author,entry.body,entry.at,entry.count]), [
+  assert.deepEqual(ends?.map(entry => [display(entry.author, 'ja'),entry.body,entry.at,entry.count]), [
     ['あなた','Viewed image\n[image]',undefined,undefined],
     ['画像閲覧','',undefined,2],
     ['エージェント','  本文\n\n**太字**',1764201600000,undefined],
@@ -341,10 +343,10 @@ test('パレットのコマンドはフォルダ版と併存しても公開版�
     ]}
     return {kind:'panel',pluginKey:args[2],panelId:args[4]}
   }
-  assert.equal(await openBoard(run, new AbortController().signal), 'セッションボードを開きました。')
+  assert.equal(await openBoard(run, new AbortController().signal), 'Opened Session Board.')
   assert.deepEqual(commands[1], ['plugin','open','yoshhiide.session-board','--panel','session-board'])
   publicStatus = 'idle'
-  assert.ok((await openBoard(run, new AbortController().signal)).includes('開けません'))
+  assert.ok((await openBoard(run, new AbortController().signal)).includes('Could not open'))
   assert.equal(commands.filter(command => command[1] === 'open').length, 1)
 })
 
@@ -409,6 +411,37 @@ test('Hostのパネル入口から更新・詳細・端末遷移を使い、競�
     options.handle = 'reused'
     assert.equal(await tested.request('board.focus', {id:terminal.id}), false)
     assert.deepEqual(tested.refusals, [])
+  } finally {
+    await tested.deactivate()
+  }
+})
+
+test('通知は最新のパネル言語を使い、セッション名は原文で送る', async () => {
+  let dispose: (() => void) | undefined
+  const tested = await mountWorker({
+    default: (orca: OrcaWorkerApi) => { dispose = setupWorker(orca, mockCli(), 0, undefined, fixedNow) },
+    deactivate: () => dispose?.()
+  })
+  try {
+    const cases = [
+      {locale:'ja-JP', state:'blocked', title:'ブロック中', from:'作業中'},
+      {locale:'en', state:'working', title:'In progress', from:'Blocked'},
+      {locale:'de-DE', state:'blocked', title:'Blocked', from:'In progress'},
+      {locale:undefined, state:'working', title:'In progress', from:'Blocked'}
+    ] as const
+    for (const [index, {locale, state, title, from}] of cases.entries()) {
+      await tested.request('board.start', locale ? {locale} : undefined)
+      await tested.request('board.refresh', locale ? {locale} : undefined)
+      const at = 500 + index
+      await tested.emit('agent.status.changed', {workspaceId:null, paneKey:'pane', receivedAt:at, state,
+        sessionId:'normal', mainAgent:{state, stateStartedAt:at}})
+      assert.deepEqual(tested.host.callsOf('notifications.show').at(-1), {
+        title: title + ' · ' + terminal.title, body: from + ' → ' + title + ' · ' + terminal.origin
+      })
+    }
+    assert.equal(tested.host.callsOf('notifications.show').length, cases.length)
+    assert.equal(language('ja'), 'ja')
+    assert.equal(language('invalid_locale'), 'en')
   } finally {
     await tested.deactivate()
   }

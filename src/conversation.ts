@@ -1,11 +1,12 @@
-import { itemState, type Activity, type Detail, type Question, type Row } from './model'
+import { copy, display, joinCopy, type Copy } from './language'
+import { itemState, sourceNames, type Activity, type Detail, type Question, type Row } from './model'
 import { errorLabel, identifier, itemPage, itemTransitions, list, optional, record, text, time, type Cli } from './sources'
 import { itemImage } from './item-images'
 import type { ItemReplyTarget, ReplyQuestion, ReplyTarget } from './native-reply'
 
 type Fields = ReturnType<typeof record>
 type Entry = Activity['entries'][number]
-const commentSource = 'Bot Item のコメント'
+const commentSource = copy('Bot Item comments', 'Bot Item のコメント')
 const bodiesLimit = 32_000
 
 function body(value: unknown): string {
@@ -17,7 +18,7 @@ function timestamp(value: unknown): number | undefined {
   return at && at <= 8.64e15 ? at : undefined
 }
 
-function recent(source: string, entries: Activity['entries'], limited: boolean): Activity {
+function recent(source: Copy, entries: Activity['entries'], limited: boolean): Activity {
   let remaining = bodiesLimit
   const visible: Activity['entries'] = []
   for (const entry of entries.slice(-30).reverse()) {
@@ -27,7 +28,7 @@ function recent(source: string, entries: Activity['entries'], limited: boolean):
   }
   return {
     source, entries: visible.reverse(),
-    issue: limited || entries.length > visible.length || remaining < 0 ? '取得した履歴の一部を表示しています。' : undefined
+    issue: limited || entries.length > visible.length || remaining < 0 ? copy('Showing part of the retrieved history.', '取得した履歴の一部を表示しています。') : undefined
   }
 }
 
@@ -157,7 +158,8 @@ async function itemActivity(events: Fields[], snapshot: Fields, partial: boolean
   })
   const activity = recent(commentSource, entries, partial || newest.length < comments.length)
   if (attachments.length !== visible.filter(entry => entry.preview).length) {
-    activity.issue = [activity.issue,'一部の添付画像はOrca標準の項目で確認してください。'].filter(Boolean).join(' ')
+    activity.issue = joinCopy([...(activity.issue ? [activity.issue] : []),
+      copy('Open the Item in Orca to see the remaining attachments.', '一部の添付画像はOrca標準の項目で確認してください。')], ' ')
   }
   return activity
 }
@@ -166,16 +168,16 @@ function itemSpeaker(actor: Fields, item: Fields): Pick<Entry, 'author' | 'speak
   const owner = optional(item.owner)
   const maker = optional(item.madeBy)
   switch (actor.kind) {
-    case 'owner': return {author:'あなた', speaker:{side:'owner', id:'owner'}}
+    case 'owner': return {author:copy('You', 'あなた'), speaker:{side:'owner', id:'owner'}}
     case 'orca': return {author:'Orca', kind:'system'}
     case 'bot': {
       const id = typeof actor.botId === 'string' && actor.botId
-      if (!id) return {author:'Bot'}
-      const author = id === owner.botId ? text(owner.name) || 'Bot' :
-        id === maker.botId ? text(maker.name) || 'Bot' : '別のBot'
+      if (!id) return {author:copy('Bot', '対象Bot')}
+      const author = id === owner.botId ? text(owner.name) || copy('Bot', '対象Bot') :
+        id === maker.botId ? text(maker.name) || copy('Bot', '対象Bot') : copy('Another Bot', '別のBot')
       return {author, speaker:{side:'agent', id}}
     }
-    default: return {author:'発言者不明'}
+    default: return {author:copy('Unknown speaker', '発言者不明')}
   }
 }
 
@@ -213,15 +215,16 @@ export async function botDetail(run: Cli, row: Row, observed: Detail['transition
   const questionStatus = changed && question ? 'replaced' : changed && answered && state !== 'input'
     ? 'answered' : !question && (state === 'input' || previous) ? 'unverified' : undefined
   if (question && targets.length && !answered && process.platform === 'darwin') question.targets = targets
-  const botName = text(optional(snapshot.owner).name) || row.bot || '対象Bot'
+  const botName = text(optional(snapshot.owner).name) || row.bot || copy('Bot', '対象Bot')
   const itemName = typeof snapshot.number === 'number' ? '#' + String(snapshot.number) : row.ref
-  const home = 'Bot「' + botName + '」の Home'
-  const step = state === 'input' ? ' → 入力待ち → ' : ' → 項目 → '
+  const home = copy('Bot “' + botName + '” Home', 'Bot「' + botName + '」の Home')
+  const step = state === 'input' ? copy('Needs you', '入力待ち') : copy('Items', '項目')
+  const itemTitle = text(snapshot.title)
   const snoozed = time(snapshot.snoozedUntil) > Date.now()
   if (!current()) throw new Error('outside_activity_window')
   const [canOpen, relatedActivity, activity] = await Promise.all([
     row.bot && !snoozed ? uniqueLocalBot(run, row.bot).catch(() => false) : false,
-    relatedBotConversation(run, row, optional(snapshot.chat), botName),
+    relatedBotConversation(run, row, optional(snapshot.chat), display(botName, 'en')),
     itemActivity(unique, snapshot, Boolean(page.next))
   ])
   const transitions = itemTransitions(unique).map(entry => entry.transition).sort((a, b) => b.at - a.at)
@@ -238,10 +241,12 @@ export async function botDetail(run: Cli, row: Row, observed: Detail['transition
     reason:state === 'external' ? text(optional(snapshot.wait).text ?? optional(snapshot.wait).reason, Infinity) || undefined : undefined,
     activity,
     relatedActivity,
-    issue:page.next ? 'Bot Item履歴の一部を表示しています。' : undefined,
+    issue:page.next ? copy('Showing part of the Bot Item history.', 'Bot Item履歴の一部を表示しています。') : undefined,
     action:canOpen ? 'bot-home' : undefined,
-    navigationHint:snoozed ? home + ' の項目で ' + itemName + ' のスヌーズ状態を確認してください。' :
-      home + step + itemName + '「' + text(snapshot.title) + '」' + (question ? ' → 質問カード' : '')
+    navigationHint:snoozed ? copy('Open ' + display(home, 'en') + ' and check whether ' + itemName + ' is still snoozed.',
+      display(home, 'ja') + ' の項目で ' + itemName + ' のスヌーズ状態を確認してください。') :
+      joinCopy([home, step, copy(itemName + ' “' + itemTitle + '”', itemName + '「' + itemTitle + '」'),
+        ...(question ? [copy('Question card', '質問カード')] : [])], ' → ')
   }
 }
 
@@ -256,7 +261,7 @@ export async function uniqueLocalBot(run: Cli, botId: string): Promise<boolean> 
 async function relatedBotConversation(run: Cli, row: Row, chat: Fields, botName: string): Promise<Activity | undefined> {
   const id = text(chat.id, 256)
   if (!row.bot || !id || chat.gone === true) return
-  const source = 'Bot チャット'
+  const source = copy('Bot chat', 'Bot チャット')
   try {
     const data = await run('bot', 'chats', '--bot', row.bot, '--all')
     const matches = list(data.chats).filter(entry => entry.id === id)
@@ -265,10 +270,10 @@ async function relatedBotConversation(run: Cli, row: Row, chat: Fields, botName:
     const activity = await agentConversation(run, 'orca_session_id:' + identifier(id), 'chat', source)
     const title = text(conversation.title)
     if (conversation.closed === false) {
-      const home = 'Bot「' + botName + '」の'
-      if (conversation.home === true) activity.navigationHint = home + 'Home Chatが元の会話です。'
+      const home = copy('Bot “' + botName + '”', 'Bot「' + botName + '」')
+      if (conversation.home === true) activity.navigationHint = joinCopy([home, 'Home Chat'], ' → ')
       else if (title && list(data.chats).filter(entry => text(entry.title) === title && entry.closed === false).length === 1) {
-        activity.navigationHint = home + 'Chatsにある「' + title + '」が元の会話です。'
+        activity.navigationHint = joinCopy([home, 'Chats', copy('“' + title + '”', '「' + title + '」')], ' → ')
       }
     }
     return activity
@@ -279,10 +284,10 @@ async function relatedBotConversation(run: Cli, row: Row, chat: Fields, botName:
 
 function chatSpeaker(value: unknown): Pick<Entry, 'author' | 'speaker' | 'kind'> {
   switch (value) {
-    case 'user': return {author:'あなた', speaker:{side:'owner', id:'user'}}
-    case 'assistant': return {author:'エージェント', speaker:{side:'agent', id:'assistant'}}
-    case 'system': return {author:'システム', kind:'system'}
-    default: return {author:'発言者不明'}
+    case 'user': return {author:copy('You', 'あなた'), speaker:{side:'owner', id:'user'}}
+    case 'assistant': return {author:copy('Agent', 'エージェント'), speaker:{side:'agent', id:'assistant'}}
+    case 'system': return {author:copy('System', 'システム'), kind:'system'}
+    default: return {author:copy('Unknown speaker', '発言者不明')}
   }
 }
 
@@ -296,7 +301,7 @@ function sameDay(first: number | undefined, next: number | undefined): boolean {
   return new Date(first).toDateString() === new Date(next).toDateString()
 }
 
-async function agentConversation(run: Cli, ref: string, kind: 'chat' | 'terminal', source: string): Promise<Activity> {
+async function agentConversation(run: Cli, ref: string, kind: 'chat' | 'terminal', source: Copy): Promise<Activity> {
   // Tool activity consumes the CLI window before the panel can group it.
   const data = await run('agent', 'read', ref, '--limit', '100')
   if (!sameSession(data.orcaSessionId, ref) || data.kind !== kind ||
@@ -316,7 +321,7 @@ async function agentConversation(run: Cli, ref: string, kind: 'chat' | 'terminal
       if (consecutive && previous?.kind === 'image-view' && sameDay(previous.at, at)) {
         previous.count = (previous.count ?? 1) + 1
       } else {
-        messages.push({author:'画像閲覧', body:'', at, kind:'image-view', count:1})
+        messages.push({author:copy('Image viewed', '画像閲覧'), body:'', at, kind:'image-view', count:1})
       }
       consecutive = true
       continue
@@ -325,7 +330,7 @@ async function agentConversation(run: Cli, ref: string, kind: 'chat' | 'terminal
     if (!message) continue
     if (entry.kind === 'message') messages.push({...chatSpeaker(entry.role), body:message, at})
     if (entry.kind === 'question') messages.push({
-      ...chatSpeaker('assistant'), author:'エージェントの質問', body:message, at
+      ...chatSpeaker('assistant'), author:copy('Agent question', 'エージェントの質問'), body:message, at
     })
   }
   return recent(source, messages, data.limited === true || entries.some(entry => entry.shortened === true))
@@ -333,10 +338,11 @@ async function agentConversation(run: Cli, ref: string, kind: 'chat' | 'terminal
 
 export async function sessionDetail(run: Cli, row: Row): Promise<Omit<Detail, 'transitions'>> {
   const chat = row.source === 'Orca チャット'
-  const source = chat ? 'Orca チャット' : row.target === row.ref ? '端末出力' : '端末エージェントの会話'
+  const terminalOutput = !chat && row.target === row.ref
+  const source = chat ? sourceNames[row.source] : terminalOutput ? copy('Terminal output', '端末出力') : copy('Terminal agent conversation', '端末エージェントの会話')
   const detail: Omit<Detail, 'transitions'> = {}
   if (chat && row.ref.startsWith('orca_session_id:')) {
-    const unverified = '同じチャットのタブを確認できません。所属とタイトルを確認してOrcaの既存タブを探してください。'
+    const unverified = copy('Could not verify the matching chat tab. Look for the existing tab in Orca using its workspace and title.', '同じチャットのタブを確認できません。所属とタイトルを確認してOrcaの既存タブを探してください。')
     detail.navigationHint = unverified
     try {
       const session = await run('agent', 'show', row.ref)
@@ -347,7 +353,9 @@ export async function sessionDetail(run: Cli, row: Row): Promise<Omit<Detail, 't
       if (matches.length === 1 && row.pane && row.workspace) {
         const tab = text(matches[0].title) || row.title
         const where = [text(matches[0].repo), text(matches[0].workspace)].filter(Boolean).join(' / ') || row.origin
-        detail.navigationHint = 'Orcaのジャンプパレット（既定 ⌘J）で「' + tab + '」を検索し、このMacの「' + where + '」にある既存チャットを開きます。'
+        detail.navigationHint = copy(
+          'Search for “' + display(tab, 'en') + '” in the Orca jump palette (⌘J by default) and open the existing chat in “' + display(where, 'en') + '” on this Mac.',
+          'Orcaのジャンプパレット（既定 ⌘J）で「' + display(tab, 'ja') + '」を検索し、このMacの「' + display(where, 'ja') + '」にある既存チャットを開きます。')
       }
     } catch {
       // A saved session can have a readable conversation even when its open tab cannot be located.
@@ -357,14 +365,14 @@ export async function sessionDetail(run: Cli, row: Row): Promise<Omit<Detail, 't
     if (row.target && await terminalMatches(run, row).catch(() => false)) detail.action = 'terminal'
     if (row.ref.startsWith('orca_session_id:')) {
       detail.activity = await agentConversation(run, row.ref, chat ? 'chat' : 'terminal', source)
-    } else if (source === '端末出力' && detail.action) {
+    } else if (terminalOutput && detail.action) {
       const data = record((await run('terminal', 'read', '--terminal', row.ref, '--limit', '40')).terminal)
       if (data.handle !== row.ref || data.source !== 'stream' || !Array.isArray(data.tail) ||
         data.tail.some(line => typeof line !== 'string') || !await terminalMatches(run, row)) {
         throw new Error('source_mismatch')
       }
       detail.activity = recent(source, data.tail.length ? [{
-        author:'端末出力', kind:'terminal-output', body:data.tail.join('\n')
+        author:copy('Terminal output', '端末出力'), kind:'terminal-output', body:data.tail.join('\n')
       }] : [],
         data.truncated === true || data.limited === true)
     } else throw new Error('source_unavailable')
@@ -375,7 +383,7 @@ export async function sessionDetail(run: Cli, row: Row): Promise<Omit<Detail, 't
 }
 
 export async function workerConversation(run: Cli, row: Row): Promise<Activity> {
-  const source = 'Bot ワーカーの会話'
+  const source = copy('Bot worker conversation', 'Bot ワーカーの会話')
   try {
     const data = await run('orchestration', 'worker-show', '--dispatch', row.ref, '--full')
     const worker = record(data.dispatch)
@@ -390,8 +398,10 @@ export async function workerConversation(run: Cli, row: Row): Promise<Activity> 
       sameSession(place.orcaSessionId, ref) && text(place.title) && text(place.workspace))
     if (places.length === 1) {
       const place = places[0]
-      activity.navigationHint = '「' + text(place.workspace) + '」にある既存の' +
-        (result.kind === 'chat' ? 'チャット' : 'ターミナル') + '「' + text(place.title) + '」がワーカーの入力先です。'
+      activity.navigationHint = copy('Reply in the existing ' + (result.kind === 'chat' ? 'chat' : 'terminal') +
+        ' “' + text(place.title) + '” in “' + text(place.workspace) + '”.',
+        '「' + text(place.workspace) + '」にある既存の' + (result.kind === 'chat' ? 'チャット' : 'ターミナル') +
+        '「' + text(place.title) + '」がワーカーの入力先です。')
     }
     return activity
   } catch (error) {

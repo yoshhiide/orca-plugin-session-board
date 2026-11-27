@@ -1,13 +1,18 @@
+import { copy, type Copy } from './language'
 export const states = {
-  input: '入力待ち', working: '作業中', external: '外部待ち', blocked: 'ブロック中',
-  waiting: '待機中', planned: '予定', failed: '失敗', done: '完了',
-  cancelled: '中止', unknown: '状態不明'
+  input: copy('Needs input', '入力待ち'), working: copy('In progress', '作業中'), external: copy('Waiting externally', '外部待ち'), blocked: copy('Blocked', 'ブロック中'),
+  waiting: copy('Idle', '待機中'), planned: copy('Planned', '予定'), failed: copy('Failed', '失敗'), done: copy('Done', '完了'),
+  cancelled: copy('Canceled', '中止'), unknown: copy('Unknown', '状態不明')
 } as const
 export type State = keyof typeof states
 export type Source = 'Bot Item' | 'Bot ワーカー' | 'Orca チャット' | 'Orca ターミナル'
-export type Transition = { from: State; to: State; at: number; via: string }
+export const sourceNames: Record<Source, Copy> = {
+  'Bot Item': 'Bot Item', 'Bot ワーカー': copy('Bot worker', 'Bot ワーカー'),
+  'Orca チャット': copy('Orca chat', 'Orca チャット'), 'Orca ターミナル': copy('Orca terminal', 'Orca ターミナル')
+}
+export type Transition = { from: State; to: State; at: number; via: Copy }
 export type Row = {
-  id: string; source: Source; title: string; origin: string; state: State; at: number;
+  id: string; source: Source; title: Copy; origin: Copy; state: State; at: number;
   reason?: string; ref: string; chat?: string; workers?: string[]; cursor?: string;
   pane?: string; target?: string; targetIncarnation?: string; workspace?: string;
   bot?: string; questionId?: string; stateAt?: number
@@ -19,24 +24,24 @@ export function withinActivityWindow(at: unknown, now: number): at is number {
     at >= now - activityWindow && at <= now
 }
 
-export type Batch = { key: string; label: string; ok: boolean; rows: Row[]; issue?: string }
+export type Batch = { key: string; label: Copy; ok: boolean; rows: Row[]; issue?: Copy }
 export type Board = {
   rows: (Row & { stale: boolean })[]
-  sources: {label: string; at?: number; issue?: string}[]
+  sources: {label: Copy; at?: number; issue?: Copy}[]
   hiddenRows?: number
-  notificationIssue?: string
+  notificationIssue?: Copy
 }
 export type Activity = {
-  source: string
-  navigationHint?: string
+  source: Copy
+  navigationHint?: Copy
   entries: {
-    author: string; body: string; at?: number
+    author: Copy; body: string; at?: number
     speaker?: { side: 'owner' | 'agent'; id: string }
     kind?: 'image-view' | 'system' | 'terminal-output'
     count?: number
     images?: { alt: string; src: string }[]
   }[]
-  issue?: string
+  issue?: Copy
 }
 export type Question = {
   eventId: string
@@ -47,7 +52,7 @@ export type Question = {
 }
 export type Detail = {
   transitions: Transition[]
-  issue?: string
+  issue?: Copy
   activity?: Activity
   relatedActivity?: Activity
   question?: Question
@@ -55,7 +60,7 @@ export type Detail = {
   state?: State
   reason?: string
   action?: 'bot-home' | 'terminal'
-  navigationHint?: string
+  navigationHint?: Copy
 }
 
 export function itemState(value: unknown): State {
@@ -95,6 +100,6 @@ export function visibleRows(rows: Row[]): Row[] {
   return rows.filter(row => row.source !== 'Bot ワーカー' || !owned.has(row.ref))
 }
 
-export function transition(row: Row, to: State, at: number, via: string): Transition {
+export function transition(row: Row, to: State, at: number, via: Copy): Transition {
   return { from: row.state, to, at, via }
 }
