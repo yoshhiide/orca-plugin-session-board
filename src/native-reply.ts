@@ -8,6 +8,7 @@ type ItemIdentity = {bot: string; number: number; title: string}
 export type ReplyTarget = ItemIdentity & {at: number; question: ReplyQuestion}
 export type ItemReplyTarget = ItemIdentity & {state: State; snoozed: boolean}
 type NativeTarget = ReplyTarget | ItemReplyTarget
+export type NativeReplyIssue = 'accessibility-required' | 'bot-home-unavailable'
 
 const statusNames: Record<State, string[]> = {
   input:['Needs you'], working:['In progress'], external:['Waiting'], planned:['Planned'],
@@ -61,15 +62,17 @@ function sameHome({nodes}: AxState, bot: string): boolean {
     node.label === 'button ' + bot + 'のページを開く'))
 }
 
-function botHomeTab({nodes}: AxState, bot: string): AxNode | undefined {
-  const marker = one(nodes.filter(node => node.label === 'button (expanded) Fold ' + bot &&
-    nodes.some(sibling => sibling.parent === node.parent && sibling.label === 'text ' + bot)))
-  if (!marker?.parent?.parent) return
+function botHomeControl({nodes}: AxState, bot: string): {unfold?: AxNode; tab?: AxNode} {
+  const collapsed = 'button Unfold ' + bot
+  const marker = one(nodes.filter(node => (node.label === 'button (expanded) Fold ' + bot || node.label === collapsed) &&
+    node.parent && nodes.some(sibling => sibling.parent === node.parent && sibling.label === 'text ' + bot)))
+  if (!marker?.parent?.parent) return {}
+  if (marker.label === collapsed) return {unfold:marker}
   // The sidebar places the Home Chat immediately after its owning Bot header.
   // The header is selected by name, and the active Bot identity is read back after opening.
   const siblings = nodes.filter(node => node.parent === marker.parent!.parent)
   const tab = siblings[siblings.indexOf(marker.parent) + 1]
-  if (tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label)) return tab
+  return tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label) ? {tab} : {}
 }
 
 function homeBack({nodes}: AxState): AxNode | undefined {
@@ -170,12 +173,12 @@ function commentComposer(state: AxState, scope: AxNode): AxNode | undefined {
 
 export async function nativeReply(
   run: Cli, target: NativeTarget, stillCurrent: () => Promise<boolean>, signal: AbortSignal
-): Promise<boolean | 'read-only'> {
+): Promise<boolean | 'read-only' | NativeReplyIssue> {
   const deadline = Date.now() + 22_000
   const active = () => !signal.aborted && Date.now() < deadline
   const permission = await run('computer', 'permissions')
-  if (permission.platform !== 'darwin' ||
-    !list(permission.permissions).some(entry => entry.id === 'accessibility' && entry.status === 'granted')) return false
+  if (permission.platform !== 'darwin') return false
+  if (!list(permission.permissions).some(entry => entry.id === 'accessibility' && entry.status === 'granted')) return 'accessibility-required'
   const windows = list((await run('computer', 'list-windows', '--app', app)).windows)
   const window = one(windows.filter(frame => optional(frame.app).bundleId === app))
   if (!window || typeof window.id !== 'number' || window.isOffscreen !== false || window.isMinimized !== false) return false
@@ -199,9 +202,17 @@ export async function nativeReply(
   if (!active() || !await stillCurrent()) return false
   let state = await read()
   if (!sameHome(state, target.bot)) {
-    if (!await press(state, botHomeTab(state, target.bot))) return false
+    let control = botHomeControl(state, target.bot)
+    if (control.unfold) {
+      if (!await press(state, control.unfold)) return 'bot-home-unavailable'
+      const expanded = await waitFor(view => !!botHomeControl(view, target.bot).tab)
+      if (!expanded) return 'bot-home-unavailable'
+      state = expanded
+      control = botHomeControl(state, target.bot)
+    }
+    if (!await press(state, control.tab)) return 'bot-home-unavailable'
     const home = await waitFor(view => sameHome(view, target.bot))
-    if (!home) return false
+    if (!home) return 'bot-home-unavailable'
     state = home
   }
 
@@ -260,7 +271,7 @@ export async function nativeReply(
     const focused = await waitFor(current => {
       const pane = ready(current)
       const field = pane && commentComposer(current, pane)
-      return !!field && (current.focused === field.index || current.focused === 'null')
+      return !!field && current.focused === field.index
     })
     return !!focused && active() && await stillCurrent()
   }

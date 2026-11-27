@@ -287,8 +287,12 @@ async function replyToItem(id: string, questionId?: string, index?: number) {
       if (opened === id) detailStatus.textContent = t('Opened the Item in Orca in read-only mode.', '標準画面を開きました。編集はできません。')
       else status.textContent = t('Opened the Item in Orca in read-only mode.', '標準画面を開きました。編集はできません。')
     } else if (!result.opened) {
-      const message = result.reason === 'changed' ? t('The Item changed. Review the latest details.', '状態が変わりました。内容を確認してください。') :
-        t('Could not verify the reply composer in Orca.', '標準の返信画面を確認できませんでした。')
+      const messages = {
+        changed: t('The Item changed. Review the latest details.', '状態が変わりました。内容を確認してください。'),
+        'accessibility-required': t('To open the reply, allow Orca Computer Use in macOS Accessibility settings.', '返信画面を開くには、macOSのアクセシビリティ設定でOrca Computer Useを許可してください。'),
+        'bot-home-unavailable': t('Could not open the Bot Home. Show the Bot in the sidebar and try again.', 'Botのホームを開けませんでした。サイドバーにBotを表示して再試行してください。')
+      }
+      const message = result.reason ? messages[result.reason] : t('Could not verify the reply composer in Orca.', '標準の返信画面を確認できませんでした。')
       if (opened === id) loadDetail(id, questionId, message)
       else open(id, message)
     }

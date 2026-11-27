@@ -1023,12 +1023,14 @@ function parse(result, window) {
 function sameHome({ nodes }, bot) {
   return !!one(nodes.filter((node) => node.label === "button Open " + bot + "'s page" || node.label === "button " + bot + "\u306E\u30DA\u30FC\u30B8\u3092\u958B\u304F"));
 }
-function botHomeTab({ nodes }, bot) {
-  const marker = one(nodes.filter((node) => node.label === "button (expanded) Fold " + bot && nodes.some((sibling) => sibling.parent === node.parent && sibling.label === "text " + bot)));
-  if (!marker?.parent?.parent) return;
+function botHomeControl({ nodes }, bot) {
+  const collapsed = "button Unfold " + bot;
+  const marker = one(nodes.filter((node) => (node.label === "button (expanded) Fold " + bot || node.label === collapsed) && node.parent && nodes.some((sibling) => sibling.parent === node.parent && sibling.label === "text " + bot)));
+  if (!marker?.parent?.parent) return {};
+  if (marker.label === collapsed) return { unfold: marker };
   const siblings = nodes.filter((node) => node.parent === marker.parent.parent);
   const tab = siblings[siblings.indexOf(marker.parent) + 1];
-  if (tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label)) return tab;
+  return tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label) ? { tab } : {};
 }
 function homeBack({ nodes }) {
   return one(nodes.filter((node) => {
@@ -1105,7 +1107,8 @@ async function nativeReply(run, target, stillCurrent, signal) {
   const deadline = Date.now() + 22e3;
   const active = () => !signal.aborted && Date.now() < deadline;
   const permission = await run("computer", "permissions");
-  if (permission.platform !== "darwin" || !list(permission.permissions).some((entry) => entry.id === "accessibility" && entry.status === "granted")) return false;
+  if (permission.platform !== "darwin") return false;
+  if (!list(permission.permissions).some((entry) => entry.id === "accessibility" && entry.status === "granted")) return "accessibility-required";
   const windows = list((await run("computer", "list-windows", "--app", app)).windows);
   const window = one(windows.filter((frame) => optional(frame.app).bundleId === app));
   if (!window || typeof window.id !== "number" || window.isOffscreen !== false || window.isMinimized !== false) return false;
@@ -1135,9 +1138,17 @@ async function nativeReply(run, target, stillCurrent, signal) {
   if (!active() || !await stillCurrent()) return false;
   let state = await read();
   if (!sameHome(state, target.bot)) {
-    if (!await press(state, botHomeTab(state, target.bot))) return false;
+    let control2 = botHomeControl(state, target.bot);
+    if (control2.unfold) {
+      if (!await press(state, control2.unfold)) return "bot-home-unavailable";
+      const expanded = await waitFor((view) => !!botHomeControl(view, target.bot).tab);
+      if (!expanded) return "bot-home-unavailable";
+      state = expanded;
+      control2 = botHomeControl(state, target.bot);
+    }
+    if (!await press(state, control2.tab)) return "bot-home-unavailable";
     const home = await waitFor((view) => sameHome(view, target.bot));
-    if (!home) return false;
+    if (!home) return "bot-home-unavailable";
     state = home;
   }
   if (!itemScope(state, target)) {
@@ -1189,7 +1200,7 @@ async function nativeReply(run, target, stillCurrent, signal) {
     const focused = await waitFor((current) => {
       const pane = ready(current);
       const field = pane && commentComposer(current, pane);
-      return !!field && (current.focused === field.index || current.focused === "null");
+      return !!field && current.focused === field.index;
     });
     return !!focused && active() && await stillCurrent();
   }
@@ -1477,7 +1488,8 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
       if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === row.bot).length !== 1 || !bots.some((bot) => bot.id === row.bot && bot.name === target.bot && bot.server == null)) return { opened: false };
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) && JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target);
       const result = await nativeReply(run, target, stillCurrent, signal);
-      return result === "read-only" ? { opened: true, reason: "read-only" } : { opened: result };
+      if (typeof result === "string") return { opened: result === "read-only", reason: result };
+      return { opened: result };
     } catch (error) {
       orca.log(label(copy("Could not verify the reply destination in Orca: ", "\u6A19\u6E96\u306E\u56DE\u7B54\u5148\u3092\u7167\u5408\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: ")) + (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : "navigation_failed"));
       return { opened: false };

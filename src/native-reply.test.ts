@@ -14,9 +14,9 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, foldedBot = false, duplicateBot = false, missingFocus = false} = {}) {
   const presses: string[] = []
-  let page = 0
+  let page = foldedBot ? -2 : 0
   let reads = 0
   const tree = (...lines: string[]) => lines.map(line => {
     const match = /^( +)(.*)$/.exec(line)!
@@ -35,13 +35,21 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
     }
     return {snapshot:{
       app:{bundleId:app}, window:{id:1,isOffscreen:false,isMinimized:false},
-      truncation:{truncated:false}, disabledElementIndexes:[51], focusedElementId:page === 3 ? 50 : null,
+      truncation:{truncated:false}, disabledElementIndexes:[51], focusedElementId:page === 3 && !missingFocus ? 50 : null,
       treeText:tree(
-        " 1 button Open 見本Bot's page",
+        page < 0 ? " 1 button Open Other Bot's page" : " 1 button Open 見本Bot's page",
+        ...(foldedBot ? [
+          ' 60 container',
+          '  61 container',
+          '   62 text 見本Bot',
+          page === -2 ? '   63 button Unfold 見本Bot' : '   63 button (expanded) Fold 見本Bot',
+          ...(page === -2 ? [] : ['  64 button Home Chat · now']),
+          ...(duplicateBot ? ['  65 container', '   66 text 見本Bot', '   67 button Unfold 見本Bot'] : [])
+        ] : []),
         ' 2 container',
         '  3 button ホーム, 要対応 2 件',
         '  4 button セッションボード',
-        ...(page === 0 ? [] : page === 1 ? [
+        ...(page <= 0 ? [] : page === 1 ? [
           '  5 container',
           '   53 text 見本Bot',
           '   54 pop up button Edit bot picture',
@@ -87,6 +95,23 @@ test('uses a numbered item and binds only the second question, then confirms Rep
   assert.deepEqual(presses, ['3', '7', '25'])
 })
 
+test('opens the folded owning Bot before replying or binding the selected question', async () => {
+  for (const [reply, status, focus] of [
+    [target, 'Needs you', '25'],
+    [{bot:target.bot, number:target.number, title:target.title, state:'done', snoozed:false}, 'Done', '50']
+  ] as const) {
+    const {run, current, presses} = fixture({foldedBot:true, status})
+    assert.equal(await nativeReply(run, reply, current, new AbortController().signal), true)
+    assert.deepEqual(presses, ['63', '64', '3', '7', focus])
+  }
+})
+
+test('leaves indistinguishable Bot headers untouched', async () => {
+  const {run, current, presses} = fixture({foldedBot:true, duplicateBot:true})
+  assert.equal(await nativeReply(run, target, current, new AbortController().signal), 'bot-home-unavailable')
+  assert.deepEqual(presses, [])
+})
+
 test('matches an unlabeled native Home detail using its toolbar and back button', async () => {
   const {run, current, presses} = fixture({anonymousHome:true})
   assert.equal(await nativeReply(run, target, current, new AbortController().signal), true)
@@ -121,6 +146,13 @@ test('reports a verified native item without an editable composer', async () => 
   const {bot,number,title} = target
   assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal), 'read-only')
   assert.deepEqual(presses, ['3', '7'])
+})
+
+test('does not report success if AXPress does not focus the normal reply composer', async () => {
+  const {run, current, presses} = fixture({status:'Done', missingFocus:true})
+  const {bot,number,title} = target
+  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal), false)
+  assert.deepEqual(presses, ['3', '7', '50'])
 })
 
 test('revalidates the Bot Item identity, unanswered event and exact decision index from the CLI', async () => {
