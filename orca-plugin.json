@@ -1,0 +1,45 @@
+{
+  "manifestVersion": 2,
+  "id": "session-board",
+  "name": "セッションボード",
+  "version": "0.2.6",
+  "description": "Botの仕事と通常セッションの状態をまとめて確認するサイドバー",
+  "engines": {
+    "orca": ">=1.4.277"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "dist/worker.mjs",
+  "contributes": {
+    "panels": [
+      {
+        "id": "session-board",
+        "title": "セッションボード",
+        "icon": "blocks",
+        "entry": "dist/panel.html",
+        "ui": "html"
+      }
+    ],
+    "commands": [
+      {
+        "id": "open-board",
+        "title": "セッションボードを開く"
+      }
+    ],
+    "events": [
+      {
+        "on": "agent.status.changed"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "agent:read"
+    },
+    {
+      "kind": "notifications:show"
+    }
+  ],
+  "publisher": "yoshhiide",
+  "license": "MIT"
+}
