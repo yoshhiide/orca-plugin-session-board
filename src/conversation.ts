@@ -114,13 +114,12 @@ export async function readItemReplyTarget(
   run: Cli, row: Row, questionId?: string, index?: number
 ): Promise<ReplyTarget | ItemReplyTarget | 'choose' | 'changed' | undefined> {
   if (!row.bot || row.source !== 'Bot Item' || (questionId === undefined) !== (index === undefined)) return
+  if (questionId !== undefined && index !== undefined) {
+    return await readReplyTarget(run, row, questionId, index) ?? 'changed'
+  }
   const {item} = await itemPage(run, row)
   const state = itemState(item.status)
   const active = pendingQuestionId(item)
-  if (questionId !== undefined && index !== undefined) {
-    if (questionId !== active) return 'changed'
-    return await readReplyTarget(run, row, questionId, index) ?? 'changed'
-  }
   if (state !== row.state || active !== (row.questionId ?? '')) return 'changed'
   if (state === 'input' || active) {
     const decisions = optional(item.question).decisions

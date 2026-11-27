@@ -1,9 +1,9 @@
-import { copy, display, joinCopy, language, type Copy, type Language } from './language'
+import { copy, display, joinCopy, language, replyMessages, type Copy, type Language } from './language'
 import type { OrcaWorkerApi, PluginEvents } from 'orca/worker'
 import type {} from './protocol'
 import { execFile } from 'node:child_process'
 import { botDetail, pendingQuestionId, readItemReplyTarget, sessionDetail, terminalMatches, uniqueLocalBot, workerConversation } from './conversation'
-import { nativeReply } from './native-reply'
+import { nativeReply, type ReplyStage } from './native-reply'
 import { activityWindow, sessionState, sourceNames, states, transition, visibleRows, withinActivityWindow, type Batch, type Board, type Detail, type Row, type Transition } from './model'
 import { cli, collect, itemHistory, itemPage, list, optional, terminalStillMatches, time, type Cli } from './sources'
 
@@ -290,28 +290,53 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
     const botId = row?.bot
     if (replying || stopped || signal.aborted || !row || row.stale || !botId) return {opened:false}
     replying = true
+    const start = performance.now()
+    let phase: ReplyStage | 'target' = 'target'
+    let phaseStart = start
+    const timings: Partial<Record<typeof phase | ReplyStage, number>> = {}
+    let outcome = 'not-verified'
+    const mark = (next: ReplyStage) => {
+      const now = performance.now()
+      timings[phase] = Math.round(now - phaseStart)
+      phase = next
+      phaseStart = now
+    }
     try {
-      const data = await run('bot', 'list')
+      const [data, target] = await Promise.all([run('bot', 'list'), readItemReplyTarget(run, row, questionId, index)])
       const bots = list(data.bots)
-      const target = await readItemReplyTarget(run, row, questionId, index)
-      if (target === 'choose' || target === 'changed') return {opened:false,reason:target}
+      if (target === 'choose' || target === 'changed') {
+        outcome = target
+        return {opened:false,reason:target}
+      }
       if (!target || !Array.isArray(data.unreachable) || data.unreachable.length ||
         bots.filter(bot => bot.name === target.bot || bot.id === botId).length !== 1 ||
-        !bots.some(bot => bot.id === botId && bot.name === target.bot && bot.server == null)) return {opened:false}
+        !bots.some(bot => bot.id === botId && bot.name === target.bot && bot.server == null)) {
+        outcome = 'target-unavailable'
+        return {opened:false,reason:'target-unavailable' as const}
+      }
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) &&
         JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target)
-      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal))
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark)
       if (typeof result === 'string') {
-        if (result !== 'read-only' && !signal.aborted) orca.log('board.reply: ' + result)
+        outcome = result
+        if (!signal.aborted && (result === 'item-unavailable' || result === 'question-unavailable' || result === 'composer-unavailable')) {
+          void orca.host.call('notifications.show', {
+            title:label(copy('Reply did not open', '返信欄を開けませんでした')), body:label(replyMessages[result])
+          }).catch(() => {})
+        }
         return {opened:result === 'read-only',reason:result}
       }
+      if (result) outcome = 'focused'
       return {opened:result}
     } catch (error) {
       orca.log(label(copy('Could not verify the reply destination in Orca: ', '標準の回答先を照合できませんでした: ')) +
         (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : 'navigation_failed'))
       return {opened:false}
     } finally {
-      if (signal.aborted) orca.log('board.reply: cancelled')
+      const end = performance.now()
+      timings[phase] = Math.round(end - phaseStart)
+      orca.log('board.reply: ' + JSON.stringify({outcome:signal.aborted ? 'cancelled' : outcome,
+        stage:phase, elapsedMs:Math.round(end - start), stageMs:timings}))
       replying = false
     }
   })

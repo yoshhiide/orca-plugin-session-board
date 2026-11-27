@@ -8,7 +8,9 @@ type ItemIdentity = {bot: string; number: number; title: string}
 export type ReplyTarget = ItemIdentity & {at: number; question: ReplyQuestion}
 export type ItemReplyTarget = ItemIdentity & {state: State; snoozed: boolean}
 type NativeTarget = ReplyTarget | ItemReplyTarget
-export type NativeReplyIssue = 'accessibility-required' | 'window-unavailable' | 'bot-home-unavailable' | 'item-unavailable'
+export type NativeReplyIssue = 'platform-unavailable' | 'accessibility-required' | 'window-unavailable' |
+  'bot-home-unavailable' | 'item-unavailable' | 'question-unavailable' | 'composer-unavailable'
+export type ReplyStage = 'preflight' | 'bot-home' | 'item' | 'question' | 'composer'
 
 const statusNames: Record<State, string[]> = {
   input:['Needs you'], working:['In progress'], external:['Waiting'], planned:['Planned'],
@@ -40,7 +42,7 @@ function parse(result: Awaited<ReturnType<Cli>>, window: number): AxState {
   const frame = optional(snapshot.window)
   if (frame.id !== window || frame.isMinimized !== false || frame.isOffscreen !== false ||
     optional(snapshot.app).bundleId !== app || optional(snapshot.truncation).truncated !== false ||
-    typeof snapshot.treeText !== 'string' || !Array.isArray(snapshot.disabledElementIndexes)) {
+    snapshot.treeDiff || typeof snapshot.treeText !== 'string' || !Array.isArray(snapshot.disabledElementIndexes)) {
     throw new Error('native_snapshot_unavailable')
   }
   const nodes: AxNode[] = []
@@ -76,8 +78,9 @@ function homeBack({nodes}: AxState): AxNode | undefined {
 function itemScope(state: AxState, target: NativeTarget): AxNode | undefined {
   const heading = one(state.nodes.filter(node => node.label === 'heading #' + target.number + ' ' + target.title))
   const scope = heading?.parent?.parent?.parent
+  const home = homeBack(state)?.parent
   const statuses = statusNames['question' in target ? 'input' : target.state]
-  if (!scope || scope.parent !== homeBack(state)?.parent ||
+  if (!home || !scope || scope.parent !== home ||
     !state.nodes.some(node => node.parent === heading?.parent &&
       statuses.some(status => node.label === 'pop up button ' + status))) return
   return scope
@@ -147,13 +150,18 @@ function exactQuestion(state: AxState, scope: AxNode, target: ReplyTarget) {
   return button
 }
 
-function emptyComposer(state: AxState, scope: AxNode): AxNode | undefined {
+function boundQuestion(state: AxState, scope: AxNode, target: ReplyTarget): boolean {
+  const reply = 'button Replying to: ' + target.question.prompt + '. Show question'
+  return !!one(state.nodes.filter(node => under(node, scope) && node.label === reply))
+}
+
+function emptyComposer(state: AxState, scope: AxNode, bot: string): AxNode | undefined {
   const nodes = state.nodes.filter(node => under(node, scope))
-  const input = one(nodes.filter(node =>
-    node.label === 'text entry area (settable) コメント ' + placeholder ||
-    node.label === 'text entry area (settable) Comment ' + placeholder))
-  if (!input || !nodes.some(node => node.parent === input && node.label === 'text ' + placeholder)) return
-  if (!nodes.some(node => /^(?:button \(disabled\) (?:コメント|Comment))$/.test(node.label))) return
+  const input = commentComposer(state, scope)
+  if (!input || ![placeholder, 'Reply to ' + bot + '…'].some(text =>
+    (input.label === 'text entry area (settable) コメント ' + text || input.label === 'text entry area (settable) Comment ' + text) &&
+    nodes.some(node => node.parent === input && node.label === 'text ' + text))) return
+  if (!nodes.some(node => /^button \(disabled\) (?:コメント|Comment)$/.test(node.label))) return
   return input
 }
 
@@ -165,35 +173,53 @@ function commentComposer(state: AxState, scope: AxNode): AxNode | undefined {
 
 export async function nativeReply(
   run: Cli, target: NativeTarget, stillCurrent: () => Promise<boolean>, signal: AbortSignal,
-  openHome: () => Promise<boolean>
+  openHome: () => Promise<boolean>, stage?: (value: ReplyStage) => void
 ): Promise<boolean | 'read-only' | NativeReplyIssue> {
   const deadline = Date.now() + 22_000
   const active = () => !signal.aborted && Date.now() < deadline
-  const permission = await run('computer', 'permissions')
-  if (permission.platform !== 'darwin') return false
+  stage?.('preflight')
+  const [permission, windowList] = await Promise.all([
+    run('computer', 'permissions'), run('computer', 'list-windows', '--app', app)
+  ])
+  if (permission.platform !== 'darwin') return 'platform-unavailable'
   if (!list(permission.permissions).some(entry => entry.id === 'accessibility' && entry.status === 'granted')) return 'accessibility-required'
-  const windows = list((await run('computer', 'list-windows', '--app', app)).windows)
-  const window = one(windows.filter(frame => optional(frame.app).bundleId === app))
-  if (!window || typeof window.id !== 'number' || window.isOffscreen !== false || window.isMinimized !== false) return 'window-unavailable'
+  const window = one(list(windowList.windows).filter(frame =>
+    optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false))
+  if (!window || typeof window.id !== 'number') return 'window-unavailable'
   const windowId = window.id
   const args = ['--app', app, '--window-id', String(windowId), '--session', 'board-reply-' + randomUUID(), '--no-screenshot']
   const read = async () => parse(await run('computer', 'get-app-state', ...args), windowId)
-  async function waitFor(predicate: (state: AxState) => boolean) {
+  async function waitFor(predicate: (state: AxState) => boolean, initial?: AxState | boolean) {
+    if (typeof initial === 'object' && active() && predicate(initial)) return initial
     for (let attempt = 0; attempt < 5 && active(); attempt++) {
       const state = await read()
       if (predicate(state)) return state
       await new Promise(resolve => setTimeout(resolve, 160))
     }
   }
-  async function press(state: AxState, node?: AxNode) {
-    if (!node || !active() || state.disabled.has(node.index)) return false
-    // AXPress is explicitly requested so the provider cannot fall back to a pointer or foreground action.
-    const action = optional((await run('computer', 'perform-secondary-action', ...args,
-      '--element-index', node.index, '--action', 'AXPress')).action)
-    return action.path === 'accessibility' && action.delivery === 'background' && action.targetWindowId === windowId
+  async function press(state: AxState, find: (view: AxState) => AxNode | undefined): Promise<AxState | boolean> {
+    for (let attempt = 0; attempt < 2 && active() && sameHome(state, target.bot); attempt++) {
+      const node = find(state)
+      if (!node || state.disabled.has(node.index)) return false
+      try {
+        // AXPress is explicitly requested so Orca cannot fall back to a pointer or foreground action.
+        const result = await run('computer', 'perform-secondary-action', ...args,
+          '--element-index', node.index, '--action', 'AXPress', '--full-tree')
+        const action = optional(result.action)
+        if (action.path !== 'accessibility' || action.delivery !== 'background' || action.targetWindowId !== windowId) return false
+        try { return parse(result, windowId) } catch { return true }
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'element_not_found') throw error
+        if (attempt || !active() || !await stillCurrent()) return false
+        state = await read()
+      }
+    }
+    return false
   }
-  if (!active() || !await stillCurrent()) return false
-  let state = await read()
+  const [first, current] = await Promise.all([read(), stillCurrent()])
+  if (!active() || !current) return false
+  let state = first
+  stage?.('bot-home')
   if (!sameHome(state, target.bot)) {
     if (!active() || !await openHome()) return 'bot-home-unavailable'
     const home = await waitFor(view => sameHome(view, target.bot))
@@ -201,80 +227,99 @@ export async function nativeReply(
     state = home
   }
 
+  stage?.('item')
+  let afterItem: AxState | boolean = state
   if (!itemScope(state, target)) {
     const homeVisible = (view: AxState) => sameHome(view, target.bot) &&
       !!(itemScope(view, target) || homePanel(view, target.bot) || homeBack(view))
     if (!homeVisible(state)) {
-      const tool = one(state.nodes.filter(node => homeToolbar.test(node.label) &&
-        state.nodes.some(sibling => sibling.parent === node.parent && sessionBoardTool.test(sibling.label))))
-      if (!await press(state, tool)) return false
-      const home = await waitFor(homeVisible)
-      if (!home) return false
+      const opened = await press(state, ({nodes}) => one(nodes.filter(node => homeToolbar.test(node.label) &&
+        nodes.some(sibling => sibling.parent === node.parent && sessionBoardTool.test(sibling.label)))))
+      if (!opened) return 'bot-home-unavailable'
+      const home = await waitFor(homeVisible, opened)
+      if (!home) return 'bot-home-unavailable'
       state = home
+      afterItem = home
     }
     if (!itemScope(state, target)) {
-      const previous = homeBack(state)
-      if (previous) {
-        if (!await press(state, previous)) return false
-        const home = await waitFor(view => sameHome(view, target.bot) && !!homePanel(view, target.bot))
-        if (!home) return false
+      if (homeBack(state)) {
+        const opened = await press(state, homeBack)
+        if (!opened) return 'item-unavailable'
+        const home = await waitFor(view => sameHome(view, target.bot) && !!homePanel(view, target.bot), opened)
+        if (!home) return 'item-unavailable'
         state = home
       }
       for (let page = 0; page < 8 && !homeItem(state, target); page++) {
         const disclosure = listControl(state, target, collapsedGroup)
-        const more = disclosure ?? listControl(state, target, label => /^button Show [0-9]+ more$/.test(label))
-        if (!sameHome(state, target.bot) || !await press(state, more)) return 'item-unavailable'
+        const opened = await press(state, view => listControl(view, target, disclosure ?
+          collapsedGroup : label => /^button Show [0-9]+ more$/.test(label)))
+        if (!opened) return 'item-unavailable'
         const before = state.nodes.filter(node => /^button #[0-9]+ /.test(node.label)).length
         const next = await waitFor(view => sameHome(view, target.bot) && !!homePanel(view, target.bot) &&
           (!!homeItem(view, target) || view.nodes.filter(node => /^button #[0-9]+ /.test(node.label)).length !== before ||
-            Boolean(disclosure && listControl(view, target, label => label === 'button (expanded)'))))
+            Boolean(disclosure && listControl(view, target, label => label === 'button (expanded)'))), opened)
         if (!next) return 'item-unavailable'
         state = next
       }
-      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return 'item-unavailable'
+      afterItem = await press(state, view => homeItem(view, target))
+      if (!afterItem) return 'item-unavailable'
     }
   }
 
-  if (!active() || !await stillCurrent()) return false
   if (!('question' in target)) {
+    stage?.('composer')
     const ready = (view: AxState) => {
       const scope = itemScope(view, target)
       return scope && sameHome(view, target.bot) && view.nodes.some(node =>
         under(node, scope) && node.label === 'heading Activity') ? scope : undefined
     }
-    const editable = await waitFor(view => {
+    const [editable, unchanged] = await Promise.all([waitFor(view => {
       const scope = ready(view)
       return !!scope && !!commentComposer(view, scope)
-    })
-    if (!active() || !await stillCurrent()) return false
-    const view = await read()
+    }, afterItem), stillCurrent()])
+    if (!active() || !unchanged) return false
+    const view = editable ?? await read()
     const scope = ready(view)
     if (!scope) return false
     const input = commentComposer(view, scope)
     if (!input) return editable ? false : 'read-only'
-    if (view.focused !== input.index && !await press(view, input)) return false
+    const focusedView = view.focused === input.index ? view : await press(view, next => {
+      const pane = ready(next)
+      return pane && commentComposer(next, pane)
+    })
+    if (!focusedView) return 'composer-unavailable'
     const focused = await waitFor(current => {
       const pane = ready(current)
       const field = pane && commentComposer(current, pane)
       return !!field && current.focused === field.index
-    })
-    return !!focused && active() && await stillCurrent()
+    }, focusedView)
+    return !focused ? 'composer-unavailable' : active() && await stillCurrent()
   }
-  const detail = await waitFor(view => {
+  stage?.('question')
+  const [detail, unchanged] = await Promise.all([waitFor(view => {
     const scope = itemScope(view, target)
-    return sameHome(view, target.bot) && !!scope && !!emptyComposer(view, scope) && !!exactQuestion(view, scope, target)
-  })
-  if (!detail) return false
-  const control = exactQuestion(detail, itemScope(detail, target)!, target)
-  if (control === 'already-bound') return active() && await stillCurrent()
-  if (!await press(detail, control)) return false
+    return sameHome(view, target.bot) && !!scope && !!emptyComposer(view, scope, target.bot) && !!exactQuestion(view, scope, target)
+  }, afterItem), stillCurrent()])
+  if (!active() || !unchanged) return false
+  if (!detail) return 'question-unavailable'
+  const scope = itemScope(detail, target)!
+  const input = emptyComposer(detail, scope, target.bot)!
+  stage?.('composer')
+  const opened = boundQuestion(detail, scope, target) && detail.focused === input.index ? detail :
+    await press(detail, next => {
+      const pane = itemScope(next, target)
+      if (!pane) return
+      const field = emptyComposer(next, pane, target.bot)
+      const control = field && exactQuestion(next, pane, target)
+      if (!control) return
+      if (boundQuestion(next, pane, target)) return field
+      if (control !== 'already-bound') return control
+    })
+  if (!opened) return 'composer-unavailable'
   const replied = await waitFor(view => {
     const current = itemScope(view, target)
     if (!current || !sameHome(view, target.bot) || !exactQuestion(view, current, target)) return false
-    const input = emptyComposer(view, current)
-    const reply = 'button Replying to: ' + target.question.prompt + '. Show question'
-    return input?.index === view.focused &&
-      view.nodes.filter(node => under(node, current) && node.label === reply).length === 1
-  })
-  return !!replied && active() && await stillCurrent()
+    return emptyComposer(view, current, target.bot)?.index === view.focused && boundQuestion(view, current, target)
+  }, opened)
+  return !replied ? 'composer-unavailable' : active() && await stillCurrent()
 }

@@ -13,6 +13,17 @@ function copy(en, ja) {
 function display(value, locale3) {
   return typeof value === "string" ? value : value[locale3];
 }
+var replyMessages = {
+  changed: copy("The Item changed. Review the latest details.", "\u72B6\u614B\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "target-unavailable": copy("Could not identify a single local Bot and Item. Open the matching Item in Orca.", "\u30ED\u30FC\u30AB\u30EB\u306EBot\u3068\u9805\u76EE\u3092\u7279\u5B9A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002Orca\u3067\u5BFE\u8C61\u9805\u76EE\u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "platform-unavailable": copy("Automatic reply navigation requires macOS. Open the Item manually.", "\u81EA\u52D5\u3067\u8FD4\u4FE1\u6B04\u3092\u958B\u304F\u306B\u306FmacOS\u304C\u5FC5\u8981\u3067\u3059\u3002\u3053\u306E\u74B0\u5883\u3067\u306F\u9805\u76EE\u3092\u624B\u52D5\u3067\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "accessibility-required": copy("To open the reply, allow Orca Computer Use in macOS Accessibility settings.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u304F\u306B\u306F\u3001macOS\u306E\u30A2\u30AF\u30BB\u30B7\u30D3\u30EA\u30C6\u30A3\u8A2D\u5B9A\u3067Orca Computer Use\u3092\u8A31\u53EF\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "window-unavailable": copy("Keep one Orca window visible in the current Space, then try again.", "\u73FE\u5728\u306ESpace\u306BOrca\u306E\u30A6\u30A3\u30F3\u30C9\u30A6\u30921\u3064\u3060\u3051\u8868\u793A\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "bot-home-unavailable": copy("Could not verify that Bot Home opened. Open the target Bot\u2019s Home Chat and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u304C\u958B\u3044\u305F\u3053\u3068\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u5BFE\u8C61Bot\u306EHome Chat\u3092\u958B\u3044\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "item-unavailable": copy("Could not locate the Item in Bot Home. Check the Item filter in Orca and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u3067\u9805\u76EE\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002Orca\u3067\u9805\u76EE\u306E\u7D5E\u308A\u8FBC\u307F\u3092\u78BA\u8A8D\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "question-unavailable": copy("Could not verify the selected question. Check the draft or current answer selection in Orca, then choose the question there.", "\u9078\u3093\u3060\u8CEA\u554F\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u6A19\u6E96\u753B\u9762\u3067\u4E0B\u66F8\u304D\u3084\u9078\u629E\u4E2D\u306E\u56DE\u7B54\u3092\u78BA\u8A8D\u3057\u3001\u8CEA\u554F\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002"),
+  "composer-unavailable": copy("Could not focus the input. Check the reply destination in Orca and select the input field.", "\u5165\u529B\u6B04\u306B\u30D5\u30A9\u30FC\u30AB\u30B9\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u6A19\u6E96\u753B\u9762\u3067\u8FD4\u4FE1\u5148\u3092\u78BA\u8A8D\u3057\u3001\u5165\u529B\u6B04\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002")
+};
 
 // src/model.ts
 var states = {
@@ -449,7 +460,7 @@ function render() {
   const { rows, sources, notificationIssue, hiddenRows } = board;
   const unavailable = sources.filter((source) => source.issue).length;
   const input = rows.filter((row) => row.state === "input" && !row.stale).length;
-  status.textContent = !sources.length ? t2("Loading\u2026", "\u53D6\u5F97\u4E2D\u2026") : t2(
+  if (!replyPending) status.textContent = !sources.length ? t2("Loading\u2026", "\u53D6\u5F97\u4E2D\u2026") : t2(
     number2.format(input) + (input === 1 ? " session needs input" : " sessions need input"),
     "\u5165\u529B\u5F85\u3061 " + number2.format(input) + " \u4EF6"
   ) + (unavailable ? t2(
@@ -535,7 +546,14 @@ function render() {
     next.focus({ preventScroll: true });
   }
 }
+var replyPending = false;
+var replyPendingText = t2("Opening in Orca\u2026", "\u6A19\u6E96\u753B\u9762\u3092\u958B\u3044\u3066\u3044\u307E\u3059\u2026");
 async function replyToItem(id, questionId, index) {
+  if (replyPending) return;
+  replyPending = true;
+  const feedback = opened === id ? detailStatus : status;
+  const previousFeedback = feedback.textContent;
+  feedback.textContent = replyPendingText;
   try {
     const result = await orca.plugin.request("board.reply", questionId === void 0 ? { id } : { id, questionId, index });
     if (result.reason === "choose") {
@@ -547,20 +565,16 @@ async function replyToItem(id, questionId, index) {
       if (opened === id) detailStatus.textContent = t2("Opened the Item in Orca in read-only mode.", "\u6A19\u6E96\u753B\u9762\u3092\u958B\u304D\u307E\u3057\u305F\u3002\u7DE8\u96C6\u306F\u3067\u304D\u307E\u305B\u3093\u3002");
       else status.textContent = t2("Opened the Item in Orca in read-only mode.", "\u6A19\u6E96\u753B\u9762\u3092\u958B\u304D\u307E\u3057\u305F\u3002\u7DE8\u96C6\u306F\u3067\u304D\u307E\u305B\u3093\u3002");
     } else if (!result.opened) {
-      const messages = {
-        changed: t2("The Item changed. Review the latest details.", "\u72B6\u614B\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
-        "accessibility-required": t2("To open the reply, allow Orca Computer Use in macOS Accessibility settings.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u304F\u306B\u306F\u3001macOS\u306E\u30A2\u30AF\u30BB\u30B7\u30D3\u30EA\u30C6\u30A3\u8A2D\u5B9A\u3067Orca Computer Use\u3092\u8A31\u53EF\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
-        "window-unavailable": t2("Keep one Orca window open and visible, then try again.", "Orca\u306E\u30A6\u30A3\u30F3\u30C9\u30A6\u30921\u3064\u3060\u3051\u8868\u793A\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
-        "bot-home-unavailable": t2("Could not verify that the Bot\u2019s Home opened. Open the target Bot\u2019s Home Chat and try again.", "\u5BFE\u8C61Bot\u306E\u30DB\u30FC\u30E0\u304C\u958B\u3044\u305F\u3053\u3068\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u5BFE\u8C61Bot\u306EHome Chat\u3092\u958B\u3044\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
-        "item-unavailable": t2("Could not locate the Item in Bot Home. Check the Item filter in Orca and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u3067\u9805\u76EE\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002Orca\u3067\u9805\u76EE\u306E\u7D5E\u308A\u8FBC\u307F\u3092\u78BA\u8A8D\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002")
-      };
-      const message = result.reason ? messages[result.reason] : t2("Could not verify the reply composer in Orca.", "\u6A19\u6E96\u306E\u8FD4\u4FE1\u753B\u9762\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
+      const message = result.reason ? label(replyMessages[result.reason]) : t2("Could not verify the reply composer in Orca.", "\u6A19\u6E96\u306E\u8FD4\u4FE1\u753B\u9762\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
       if (opened === id) loadDetail(id, questionId, message);
       else open(id, message);
     }
   } catch {
     if (opened === id) detailStatus.textContent = t2("Could not open the reply composer. Select Refresh to try again.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
     else status.textContent = t2("Could not open the reply composer. Select Refresh to try again.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u66F4\u65B0\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+  } finally {
+    replyPending = false;
+    if (feedback.textContent === replyPendingText) feedback.textContent = previousFeedback;
   }
 }
 var currentDetail;

@@ -19,6 +19,17 @@ function joinCopy(parts, separator) {
     parts.map((part) => display(part, "ja")).join(separator)
   );
 }
+var replyMessages = {
+  changed: copy("The Item changed. Review the latest details.", "\u72B6\u614B\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "target-unavailable": copy("Could not identify a single local Bot and Item. Open the matching Item in Orca.", "\u30ED\u30FC\u30AB\u30EB\u306EBot\u3068\u9805\u76EE\u3092\u7279\u5B9A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002Orca\u3067\u5BFE\u8C61\u9805\u76EE\u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "platform-unavailable": copy("Automatic reply navigation requires macOS. Open the Item manually.", "\u81EA\u52D5\u3067\u8FD4\u4FE1\u6B04\u3092\u958B\u304F\u306B\u306FmacOS\u304C\u5FC5\u8981\u3067\u3059\u3002\u3053\u306E\u74B0\u5883\u3067\u306F\u9805\u76EE\u3092\u624B\u52D5\u3067\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "accessibility-required": copy("To open the reply, allow Orca Computer Use in macOS Accessibility settings.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u304F\u306B\u306F\u3001macOS\u306E\u30A2\u30AF\u30BB\u30B7\u30D3\u30EA\u30C6\u30A3\u8A2D\u5B9A\u3067Orca Computer Use\u3092\u8A31\u53EF\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "window-unavailable": copy("Keep one Orca window visible in the current Space, then try again.", "\u73FE\u5728\u306ESpace\u306BOrca\u306E\u30A6\u30A3\u30F3\u30C9\u30A6\u30921\u3064\u3060\u3051\u8868\u793A\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "bot-home-unavailable": copy("Could not verify that Bot Home opened. Open the target Bot\u2019s Home Chat and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u304C\u958B\u3044\u305F\u3053\u3068\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u5BFE\u8C61Bot\u306EHome Chat\u3092\u958B\u3044\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "item-unavailable": copy("Could not locate the Item in Bot Home. Check the Item filter in Orca and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u3067\u9805\u76EE\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002Orca\u3067\u9805\u76EE\u306E\u7D5E\u308A\u8FBC\u307F\u3092\u78BA\u8A8D\u3057\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
+  "question-unavailable": copy("Could not verify the selected question. Check the draft or current answer selection in Orca, then choose the question there.", "\u9078\u3093\u3060\u8CEA\u554F\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u6A19\u6E96\u753B\u9762\u3067\u4E0B\u66F8\u304D\u3084\u9078\u629E\u4E2D\u306E\u56DE\u7B54\u3092\u78BA\u8A8D\u3057\u3001\u8CEA\u554F\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002"),
+  "composer-unavailable": copy("Could not focus the input. Check the reply destination in Orca and select the input field.", "\u5165\u529B\u6B04\u306B\u30D5\u30A9\u30FC\u30AB\u30B9\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u6A19\u6E96\u753B\u9762\u3067\u8FD4\u4FE1\u5148\u3092\u78BA\u8A8D\u3057\u3001\u5165\u529B\u6B04\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002")
+};
 
 // src/worker.ts
 import { execFile as execFile3 } from "node:child_process";
@@ -674,13 +685,12 @@ async function readReplyTarget(run, row, questionId, index) {
 }
 async function readItemReplyTarget(run, row, questionId, index) {
   if (!row.bot || row.source !== "Bot Item" || questionId === void 0 !== (index === void 0)) return;
+  if (questionId !== void 0 && index !== void 0) {
+    return await readReplyTarget(run, row, questionId, index) ?? "changed";
+  }
   const { item } = await itemPage(run, row);
   const state = itemState(item.status);
   const active = pendingQuestionId(item);
-  if (questionId !== void 0 && index !== void 0) {
-    if (questionId !== active) return "changed";
-    return await readReplyTarget(run, row, questionId, index) ?? "changed";
-  }
   if (state !== row.state || active !== (row.questionId ?? "")) return "changed";
   if (state === "input" || active) {
     const decisions2 = optional(item.question).decisions;
@@ -1004,7 +1014,7 @@ function under(node, ancestor) {
 function parse(result, window) {
   const snapshot = optional(result.snapshot);
   const frame = optional(snapshot.window);
-  if (frame.id !== window || frame.isMinimized !== false || frame.isOffscreen !== false || optional(snapshot.app).bundleId !== app || optional(snapshot.truncation).truncated !== false || typeof snapshot.treeText !== "string" || !Array.isArray(snapshot.disabledElementIndexes)) {
+  if (frame.id !== window || frame.isMinimized !== false || frame.isOffscreen !== false || optional(snapshot.app).bundleId !== app || optional(snapshot.truncation).truncated !== false || snapshot.treeDiff || typeof snapshot.treeText !== "string" || !Array.isArray(snapshot.disabledElementIndexes)) {
     throw new Error("native_snapshot_unavailable");
   }
   const nodes = [];
@@ -1034,8 +1044,9 @@ function homeBack({ nodes }) {
 function itemScope(state, target) {
   const heading = one(state.nodes.filter((node) => node.label === "heading #" + target.number + " " + target.title));
   const scope = heading?.parent?.parent?.parent;
+  const home = homeBack(state)?.parent;
   const statuses = statusNames["question" in target ? "input" : target.state];
-  if (!scope || scope.parent !== homeBack(state)?.parent || !state.nodes.some((node) => node.parent === heading?.parent && statuses.some((status) => node.label === "pop up button " + status))) return;
+  if (!home || !scope || scope.parent !== home || !state.nodes.some((node) => node.parent === heading?.parent && statuses.some((status) => node.label === "pop up button " + status))) return;
   return scope;
 }
 function homePanel({ nodes }, bot) {
@@ -1088,125 +1099,170 @@ function exactQuestion(state, scope, target) {
   if (!matches((choice) => "button " + choiceText(choice)) && !matches((choice) => "toggle button " + choiceText(choice) + ", Value: 0")) return;
   return button;
 }
-function emptyComposer(state, scope) {
+function boundQuestion(state, scope, target) {
+  const reply = "button Replying to: " + target.question.prompt + ". Show question";
+  return !!one(state.nodes.filter((node) => under(node, scope) && node.label === reply));
+}
+function emptyComposer(state, scope, bot) {
   const nodes = state.nodes.filter((node) => under(node, scope));
-  const input = one(nodes.filter((node) => node.label === "text entry area (settable) \u30B3\u30E1\u30F3\u30C8 " + placeholder || node.label === "text entry area (settable) Comment " + placeholder));
-  if (!input || !nodes.some((node) => node.parent === input && node.label === "text " + placeholder)) return;
-  if (!nodes.some((node) => /^(?:button \(disabled\) (?:コメント|Comment))$/.test(node.label))) return;
+  const input = commentComposer(state, scope);
+  if (!input || ![placeholder, "Reply to " + bot + "\u2026"].some((text2) => (input.label === "text entry area (settable) \u30B3\u30E1\u30F3\u30C8 " + text2 || input.label === "text entry area (settable) Comment " + text2) && nodes.some((node) => node.parent === input && node.label === "text " + text2))) return;
+  if (!nodes.some((node) => /^button \(disabled\) (?:コメント|Comment)$/.test(node.label))) return;
   return input;
 }
 function commentComposer(state, scope) {
   return one(state.nodes.filter((node) => under(node, scope) && /^text entry area \(settable\) (?:コメント|Comment)(?: |$)/.test(node.label) && !state.disabled.has(node.index)));
 }
-async function nativeReply(run, target, stillCurrent, signal, openHome) {
+async function nativeReply(run, target, stillCurrent, signal, openHome, stage) {
   const deadline = Date.now() + 22e3;
   const active = () => !signal.aborted && Date.now() < deadline;
-  const permission = await run("computer", "permissions");
-  if (permission.platform !== "darwin") return false;
+  stage?.("preflight");
+  const [permission, windowList] = await Promise.all([
+    run("computer", "permissions"),
+    run("computer", "list-windows", "--app", app)
+  ]);
+  if (permission.platform !== "darwin") return "platform-unavailable";
   if (!list(permission.permissions).some((entry) => entry.id === "accessibility" && entry.status === "granted")) return "accessibility-required";
-  const windows = list((await run("computer", "list-windows", "--app", app)).windows);
-  const window = one(windows.filter((frame) => optional(frame.app).bundleId === app));
-  if (!window || typeof window.id !== "number" || window.isOffscreen !== false || window.isMinimized !== false) return "window-unavailable";
+  const window = one(list(windowList.windows).filter((frame) => optional(frame.app).bundleId === app && frame.isOffscreen === false && frame.isMinimized === false));
+  if (!window || typeof window.id !== "number") return "window-unavailable";
   const windowId = window.id;
   const args = ["--app", app, "--window-id", String(windowId), "--session", "board-reply-" + randomUUID(), "--no-screenshot"];
   const read = async () => parse(await run("computer", "get-app-state", ...args), windowId);
-  async function waitFor(predicate) {
+  async function waitFor(predicate, initial) {
+    if (typeof initial === "object" && active() && predicate(initial)) return initial;
     for (let attempt = 0; attempt < 5 && active(); attempt++) {
       const state2 = await read();
       if (predicate(state2)) return state2;
       await new Promise((resolve2) => setTimeout(resolve2, 160));
     }
   }
-  async function press(state2, node) {
-    if (!node || !active() || state2.disabled.has(node.index)) return false;
-    const action = optional((await run(
-      "computer",
-      "perform-secondary-action",
-      ...args,
-      "--element-index",
-      node.index,
-      "--action",
-      "AXPress"
-    )).action);
-    return action.path === "accessibility" && action.delivery === "background" && action.targetWindowId === windowId;
+  async function press(state2, find) {
+    for (let attempt = 0; attempt < 2 && active() && sameHome(state2, target.bot); attempt++) {
+      const node = find(state2);
+      if (!node || state2.disabled.has(node.index)) return false;
+      try {
+        const result = await run(
+          "computer",
+          "perform-secondary-action",
+          ...args,
+          "--element-index",
+          node.index,
+          "--action",
+          "AXPress",
+          "--full-tree"
+        );
+        const action = optional(result.action);
+        if (action.path !== "accessibility" || action.delivery !== "background" || action.targetWindowId !== windowId) return false;
+        try {
+          return parse(result, windowId);
+        } catch {
+          return true;
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "element_not_found") throw error;
+        if (attempt || !active() || !await stillCurrent()) return false;
+        state2 = await read();
+      }
+    }
+    return false;
   }
-  if (!active() || !await stillCurrent()) return false;
-  let state = await read();
+  const [first, current] = await Promise.all([read(), stillCurrent()]);
+  if (!active() || !current) return false;
+  let state = first;
+  stage?.("bot-home");
   if (!sameHome(state, target.bot)) {
     if (!active() || !await openHome()) return "bot-home-unavailable";
     const home = await waitFor((view) => sameHome(view, target.bot));
     if (!home) return "bot-home-unavailable";
     state = home;
   }
+  stage?.("item");
+  let afterItem = state;
   if (!itemScope(state, target)) {
     const homeVisible = (view) => sameHome(view, target.bot) && !!(itemScope(view, target) || homePanel(view, target.bot) || homeBack(view));
     if (!homeVisible(state)) {
-      const tool = one(state.nodes.filter((node) => homeToolbar.test(node.label) && state.nodes.some((sibling) => sibling.parent === node.parent && sessionBoardTool.test(sibling.label))));
-      if (!await press(state, tool)) return false;
-      const home = await waitFor(homeVisible);
-      if (!home) return false;
+      const opened2 = await press(state, ({ nodes }) => one(nodes.filter((node) => homeToolbar.test(node.label) && nodes.some((sibling) => sibling.parent === node.parent && sessionBoardTool.test(sibling.label)))));
+      if (!opened2) return "bot-home-unavailable";
+      const home = await waitFor(homeVisible, opened2);
+      if (!home) return "bot-home-unavailable";
       state = home;
+      afterItem = home;
     }
     if (!itemScope(state, target)) {
-      const previous = homeBack(state);
-      if (previous) {
-        if (!await press(state, previous)) return false;
-        const home = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot));
-        if (!home) return false;
+      if (homeBack(state)) {
+        const opened2 = await press(state, homeBack);
+        if (!opened2) return "item-unavailable";
+        const home = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot), opened2);
+        if (!home) return "item-unavailable";
         state = home;
       }
       for (let page = 0; page < 8 && !homeItem(state, target); page++) {
         const disclosure = listControl(state, target, collapsedGroup);
-        const more = disclosure ?? listControl(state, target, (label) => /^button Show [0-9]+ more$/.test(label));
-        if (!sameHome(state, target.bot) || !await press(state, more)) return "item-unavailable";
+        const opened2 = await press(state, (view) => listControl(view, target, disclosure ? collapsedGroup : (label) => /^button Show [0-9]+ more$/.test(label)));
+        if (!opened2) return "item-unavailable";
         const before = state.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length;
-        const next = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot) && (!!homeItem(view, target) || view.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length !== before || Boolean(disclosure && listControl(view, target, (label) => label === "button (expanded)"))));
+        const next = await waitFor((view) => sameHome(view, target.bot) && !!homePanel(view, target.bot) && (!!homeItem(view, target) || view.nodes.filter((node) => /^button #[0-9]+ /.test(node.label)).length !== before || Boolean(disclosure && listControl(view, target, (label) => label === "button (expanded)"))), opened2);
         if (!next) return "item-unavailable";
         state = next;
       }
-      if (!sameHome(state, target.bot) || !await press(state, homeItem(state, target))) return "item-unavailable";
+      afterItem = await press(state, (view) => homeItem(view, target));
+      if (!afterItem) return "item-unavailable";
     }
   }
-  if (!active() || !await stillCurrent()) return false;
   if (!("question" in target)) {
+    stage?.("composer");
     const ready = (view2) => {
-      const scope2 = itemScope(view2, target);
-      return scope2 && sameHome(view2, target.bot) && view2.nodes.some((node) => under(node, scope2) && node.label === "heading Activity") ? scope2 : void 0;
+      const scope3 = itemScope(view2, target);
+      return scope3 && sameHome(view2, target.bot) && view2.nodes.some((node) => under(node, scope3) && node.label === "heading Activity") ? scope3 : void 0;
     };
-    const editable = await waitFor((view2) => {
-      const scope2 = ready(view2);
-      return !!scope2 && !!commentComposer(view2, scope2);
+    const [editable, unchanged2] = await Promise.all([waitFor((view2) => {
+      const scope3 = ready(view2);
+      return !!scope3 && !!commentComposer(view2, scope3);
+    }, afterItem), stillCurrent()]);
+    if (!active() || !unchanged2) return false;
+    const view = editable ?? await read();
+    const scope2 = ready(view);
+    if (!scope2) return false;
+    const input2 = commentComposer(view, scope2);
+    if (!input2) return editable ? false : "read-only";
+    const focusedView = view.focused === input2.index ? view : await press(view, (next) => {
+      const pane = ready(next);
+      return pane && commentComposer(next, pane);
     });
-    if (!active() || !await stillCurrent()) return false;
-    const view = await read();
-    const scope = ready(view);
-    if (!scope) return false;
-    const input = commentComposer(view, scope);
-    if (!input) return editable ? false : "read-only";
-    if (view.focused !== input.index && !await press(view, input)) return false;
-    const focused = await waitFor((current) => {
-      const pane = ready(current);
-      const field = pane && commentComposer(current, pane);
-      return !!field && current.focused === field.index;
-    });
-    return !!focused && active() && await stillCurrent();
+    if (!focusedView) return "composer-unavailable";
+    const focused = await waitFor((current2) => {
+      const pane = ready(current2);
+      const field = pane && commentComposer(current2, pane);
+      return !!field && current2.focused === field.index;
+    }, focusedView);
+    return !focused ? "composer-unavailable" : active() && await stillCurrent();
   }
-  const detail = await waitFor((view) => {
-    const scope = itemScope(view, target);
-    return sameHome(view, target.bot) && !!scope && !!emptyComposer(view, scope) && !!exactQuestion(view, scope, target);
+  stage?.("question");
+  const [detail, unchanged] = await Promise.all([waitFor((view) => {
+    const scope2 = itemScope(view, target);
+    return sameHome(view, target.bot) && !!scope2 && !!emptyComposer(view, scope2, target.bot) && !!exactQuestion(view, scope2, target);
+  }, afterItem), stillCurrent()]);
+  if (!active() || !unchanged) return false;
+  if (!detail) return "question-unavailable";
+  const scope = itemScope(detail, target);
+  const input = emptyComposer(detail, scope, target.bot);
+  stage?.("composer");
+  const opened = boundQuestion(detail, scope, target) && detail.focused === input.index ? detail : await press(detail, (next) => {
+    const pane = itemScope(next, target);
+    if (!pane) return;
+    const field = emptyComposer(next, pane, target.bot);
+    const control = field && exactQuestion(next, pane, target);
+    if (!control) return;
+    if (boundQuestion(next, pane, target)) return field;
+    if (control !== "already-bound") return control;
   });
-  if (!detail) return false;
-  const control = exactQuestion(detail, itemScope(detail, target), target);
-  if (control === "already-bound") return active() && await stillCurrent();
-  if (!await press(detail, control)) return false;
+  if (!opened) return "composer-unavailable";
   const replied = await waitFor((view) => {
-    const current = itemScope(view, target);
-    if (!current || !sameHome(view, target.bot) || !exactQuestion(view, current, target)) return false;
-    const input = emptyComposer(view, current);
-    const reply = "button Replying to: " + target.question.prompt + ". Show question";
-    return input?.index === view.focused && view.nodes.filter((node) => under(node, current) && node.label === reply).length === 1;
-  });
-  return !!replied && active() && await stillCurrent();
+    const current2 = itemScope(view, target);
+    if (!current2 || !sameHome(view, target.bot) || !exactQuestion(view, current2, target)) return false;
+    return emptyComposer(view, current2, target.bot)?.index === view.focused && boundQuestion(view, current2, target);
+  }, opened);
+  return !replied ? "composer-unavailable" : active() && await stillCurrent();
 }
 
 // src/worker.ts
@@ -1468,24 +1524,55 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
     const botId = row?.bot;
     if (replying || stopped || signal.aborted || !row || row.stale || !botId) return { opened: false };
     replying = true;
+    const start2 = performance.now();
+    let phase = "target";
+    let phaseStart = start2;
+    const timings = {};
+    let outcome = "not-verified";
+    const mark = (next) => {
+      const now = performance.now();
+      timings[phase] = Math.round(now - phaseStart);
+      phase = next;
+      phaseStart = now;
+    };
     try {
-      const data = await run("bot", "list");
+      const [data, target] = await Promise.all([run("bot", "list"), readItemReplyTarget(run, row, questionId, index)]);
       const bots = list(data.bots);
-      const target = await readItemReplyTarget(run, row, questionId, index);
-      if (target === "choose" || target === "changed") return { opened: false, reason: target };
-      if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === botId).length !== 1 || !bots.some((bot) => bot.id === botId && bot.name === target.bot && bot.server == null)) return { opened: false };
+      if (target === "choose" || target === "changed") {
+        outcome = target;
+        return { opened: false, reason: target };
+      }
+      if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === botId).length !== 1 || !bots.some((bot) => bot.id === botId && bot.name === target.bot && bot.server == null)) {
+        outcome = "target-unavailable";
+        return { opened: false, reason: "target-unavailable" };
+      }
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) && JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target);
-      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal));
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal), mark);
       if (typeof result === "string") {
-        if (result !== "read-only" && !signal.aborted) orca.log("board.reply: " + result);
+        outcome = result;
+        if (!signal.aborted && (result === "item-unavailable" || result === "question-unavailable" || result === "composer-unavailable")) {
+          void orca.host.call("notifications.show", {
+            title: label(copy("Reply did not open", "\u8FD4\u4FE1\u6B04\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F")),
+            body: label(replyMessages[result])
+          }).catch(() => {
+          });
+        }
         return { opened: result === "read-only", reason: result };
       }
+      if (result) outcome = "focused";
       return { opened: result };
     } catch (error) {
       orca.log(label(copy("Could not verify the reply destination in Orca: ", "\u6A19\u6E96\u306E\u56DE\u7B54\u5148\u3092\u7167\u5408\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F: ")) + (error instanceof Error && /^[a-z][a-z0-9_]{1,63}$/.test(error.message) ? error.message : "navigation_failed"));
       return { opened: false };
     } finally {
-      if (signal.aborted) orca.log("board.reply: cancelled");
+      const end = performance.now();
+      timings[phase] = Math.round(end - phaseStart);
+      orca.log("board.reply: " + JSON.stringify({
+        outcome: signal.aborted ? "cancelled" : outcome,
+        stage: phase,
+        elapsedMs: Math.round(end - start2),
+        stageMs: timings
+      }));
       replying = false;
     }
   });

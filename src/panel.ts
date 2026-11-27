@@ -1,4 +1,4 @@
-import { display, language, type Copy } from './language'
+import { display, language, replyMessages, type Copy } from './language'
 import { isBot, sourceNames, states, type Board, type Detail, type Source, type State } from './model'
 import type {} from './protocol'
 import { renderActivity } from './activity-view'
@@ -199,7 +199,7 @@ function render() {
   const {rows, sources, notificationIssue, hiddenRows} = board
   const unavailable = sources.filter(source => source.issue).length
   const input = rows.filter(row => row.state === 'input' && !row.stale).length
-  status.textContent = !sources.length ? t('Loading…', '取得中…') :
+  if (!replyPending) status.textContent = !sources.length ? t('Loading…', '取得中…') :
     t(number.format(input) + (input === 1 ? ' session needs input' : ' sessions need input'),
       '入力待ち ' + number.format(input) + ' 件') +
     (unavailable ? t(' · ' + number.format(unavailable) + (unavailable === 1 ? ' unavailable source' : ' unavailable sources'),
@@ -275,7 +275,14 @@ function render() {
     next.focus({preventScroll:true})
   }
 }
+let replyPending = false
+const replyPendingText = t('Opening in Orca…', '標準画面を開いています…')
 async function replyToItem(id: string, questionId?: string, index?: number) {
+  if (replyPending) return
+  replyPending = true
+  const feedback = opened === id ? detailStatus : status
+  const previousFeedback = feedback.textContent
+  feedback.textContent = replyPendingText
   try {
     const result = await orca.plugin.request('board.reply', questionId === undefined ? {id} : {id, questionId, index: index!})
     if (result.reason === 'choose') {
@@ -287,20 +294,17 @@ async function replyToItem(id: string, questionId?: string, index?: number) {
       if (opened === id) detailStatus.textContent = t('Opened the Item in Orca in read-only mode.', '標準画面を開きました。編集はできません。')
       else status.textContent = t('Opened the Item in Orca in read-only mode.', '標準画面を開きました。編集はできません。')
     } else if (!result.opened) {
-      const messages = {
-        changed: t('The Item changed. Review the latest details.', '状態が変わりました。内容を確認してください。'),
-        'accessibility-required': t('To open the reply, allow Orca Computer Use in macOS Accessibility settings.', '返信画面を開くには、macOSのアクセシビリティ設定でOrca Computer Useを許可してください。'),
-        'window-unavailable': t('Keep one Orca window open and visible, then try again.', 'Orcaのウィンドウを1つだけ表示してから再試行してください。'),
-        'bot-home-unavailable': t('Could not verify that the Bot’s Home opened. Open the target Bot’s Home Chat and try again.', '対象Botのホームが開いたことを確認できませんでした。対象BotのHome Chatを開いてから再試行してください。'),
-        'item-unavailable': t('Could not locate the Item in Bot Home. Check the Item filter in Orca and try again.', 'Botのホームで項目を確認できませんでした。Orcaで項目の絞り込みを確認してから再試行してください。')
-      }
-      const message = result.reason ? messages[result.reason] : t('Could not verify the reply composer in Orca.', '標準の返信画面を確認できませんでした。')
+      const message = result.reason ? label(replyMessages[result.reason]) :
+        t('Could not verify the reply composer in Orca.', '標準の返信画面を確認できませんでした。')
       if (opened === id) loadDetail(id, questionId, message)
       else open(id, message)
     }
   } catch {
     if (opened === id) detailStatus.textContent = t('Could not open the reply composer. Select Refresh to try again.', '返信画面を開けませんでした。更新して再試行してください。')
     else status.textContent = t('Could not open the reply composer. Select Refresh to try again.', '返信画面を開けませんでした。更新して再試行してください。')
+  } finally {
+    replyPending = false
+    if (feedback.textContent === replyPendingText) feedback.textContent = previousFeedback
   }
 }
 let currentDetail: Detail | undefined

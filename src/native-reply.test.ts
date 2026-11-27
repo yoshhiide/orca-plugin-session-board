@@ -14,12 +14,14 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false, freeText = false, alreadyBound = false, changedIndex = false, actionSnapshots = false, windows = [{id:1,isOffscreen:false,isMinimized:false}]} = {}) {
   const presses: string[] = []
   let page = 0
   let groupExpanded = !collapsedGroup
   let onTarget = !otherBot
   let opens = 0
+  let expired = false
+  let snapshots = 0
   const openHome = async () => {
     opens++
     if (!wrongHome && !openFailed) onTarget = true
@@ -32,16 +34,27 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
   }).join('\n')
   const run: Cli = async (_, method, ...args) => {
     if (method === 'permissions') return {platform:'darwin', permissions:[{id:'accessibility',status:'granted'}]}
-    if (method === 'list-windows') return {windows:[{id:1, app:{bundleId:app}, isOffscreen:false, isMinimized:false}]}
+    if (method === 'list-windows') return {windows:windows.map(window => ({...window, app:{bundleId:app}}))}
     if (method === 'perform-secondary-action') {
       const index = args[args.indexOf('--element-index') + 1]
       assert.equal(args[args.indexOf('--action') + 1], 'AXPress')
       assert.equal(args.includes('--restore-window'), false)
       presses.push(index)
+      if (changedIndex && index === '7') {
+        expired = true
+        throw new Error('element_not_found')
+      }
       if (index === '57') groupExpanded = true
       else page++
-      return {action:{path:'accessibility', delivery:'background', targetWindowId:1}}
+      const action = {path:'accessibility', delivery:'background', targetWindowId:1}
+      if (!actionSnapshots) return {action}
+      assert.equal(args.includes('--full-tree'), true)
+      const data = await run(_, 'action-snapshot')
+      return {action,...data}
     }
+    if (method !== 'action-snapshot') snapshots++
+    const bound = alreadyBound || page === 3
+    const empty = freeText && bound ? 'Reply to 見本Bot…' : placeholder
     return {snapshot:{
       app:{bundleId:app}, window:{id:1,isOffscreen:false,isMinimized:false},
       truncation:{truncated:false}, disabledElementIndexes:[51], focusedElementId:page === 3 && !missingFocus ? 50 : null,
@@ -62,7 +75,7 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
           ...(groupExpanded ? [
             '   55 content list ' + (['Done','Canceled'].includes(status) ? 'Closed' : status),
             '    6 button #9 青の確認 now',
-            '    7 button #8 青の確認 now'
+            '    ' + (expired ? '70' : '7') + ' button #8 青の確認 now'
           ] : [])
         ] : [
           '  8 container' + (anonymousHome ? '' : ' ホーム'),
@@ -81,20 +94,22 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
           '        20 toggle button 縦, Value: 0',
           '        21 button Type your answer',
           '        22 text 図形はどちらですか?',
-          '        23 ' + (plain ? 'button 丸' : 'toggle button 丸, Value: ' + (picked ? 1 : 0)),
-          '        24 ' + (plain ? 'button 四角' : 'toggle button 四角, Value: 0'),
-          '        25 button Type your answer',
+          ...(freeText ? [] : [
+            '        23 ' + (plain ? 'button 丸' : 'toggle button 丸, Value: ' + (picked ? 1 : 0)),
+            '        24 ' + (plain ? 'button 四角' : 'toggle button 四角, Value: 0')
+          ]),
+          ...(alreadyBound ? [] : ['        25 button Type your answer']),
           ...(ambiguous ? ['       26 container 見本Bot, ' + stamp] : []),
           '    27 container',
-          '     28 button Replying to: ' + (page === 3 ? target.question.prompt : '向きはどちらですか?') + '. Show question',
-          ...(readOnly ? [] : ['     50 text entry area (settable) コメント ' + (draft ? 'Value: 下書き' : placeholder)]),
-          '      52 text ' + placeholder,
+          '     28 button Replying to: ' + (bound ? target.question.prompt : '向きはどちらですか?') + '. Show question',
+          ...(readOnly ? [] : ['     50 text entry area (settable) コメント ' + (draft ? 'Value: 下書き' : empty)]),
+          '      52 text ' + empty,
           '     51 button (disabled) コメント'
         ])
       )
     }}
   }
-  return {presses, run, openHome, opens:() => opens, current:async () => ++reads < 2 || !stale}
+  return {presses, run, openHome, opens:() => opens, snapshots:() => snapshots, current:async () => ++reads < 2 || !stale}
 }
 
 test('uses a numbered item and binds only the second question, then confirms Replying to and focus', async () => {
@@ -146,7 +161,8 @@ test('never presses immediate reply buttons on a single-question card', async ()
 test('refuses replaced, ambiguous, held, drafted and mismatched native reply targets', async () => {
   for (const failure of [{wrongCard:true}, {picked:true}, {draft:true}, {ambiguous:true}, {stale:true}]) {
     const {run, current, presses, openHome} = fixture(failure)
-    assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), false)
+    assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome),
+      'stale' in failure ? false : 'question-unavailable')
     assert.deepEqual(presses, ['3', '7'])
   }
 })
@@ -170,8 +186,41 @@ test('reports a verified native item without an editable composer', async () => 
 test('does not report success if AXPress does not focus the normal reply composer', async () => {
   const {run, current, presses, openHome} = fixture({status:'Done', missingFocus:true})
   const {bot,number,title} = target
-  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal, openHome), false)
+  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal, openHome), 'composer-unavailable')
   assert.deepEqual(presses, ['3', '7', '50'])
+})
+
+test('checks focus for the free-text composer before success, including an already selected question', async () => {
+  const freeTarget = {...target,question:{...target.question,choices:[]}}
+  for (const [alreadyBound, missingFocus, result, lastPress] of [
+    [false,false,true,'25'], [true,false,true,'50'], [true,true,'composer-unavailable','50']
+  ] as const) {
+    const {run,current,openHome,presses} = fixture({freeText:true,alreadyBound,missingFocus})
+    assert.equal(await nativeReply(run,freeTarget,current,new AbortController().signal,openHome),result)
+    assert.deepEqual(presses,['3','7',lastPress])
+  }
+})
+
+test('accepts a single visible window, and refuses to choose between two visible windows', async () => {
+  const main = {id:1,isOffscreen:false,isMinimized:false}
+  for (const hidden of [true,false]) {
+    const {run,current,openHome,presses} = fixture({windows:[main,{...main,id:2,isOffscreen:hidden}]})
+    assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),hidden ? true : 'window-unavailable')
+    assert.deepEqual(presses,hidden ? ['3','7','25'] : [])
+  }
+})
+
+test('locates the same Item on a fresh AX snapshot after its index expires', async () => {
+  const {run,current,openHome,presses} = fixture({changedIndex:true})
+  assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),true)
+  assert.deepEqual(presses,['3','7','70','25'])
+})
+
+test('verifies navigation using the full AX snapshot returned with each action', async () => {
+  const {run,current,openHome,presses,snapshots} = fixture({actionSnapshots:true})
+  assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),true)
+  assert.deepEqual(presses,['3','7','25'])
+  assert.equal(snapshots(),1)
 })
 
 test('revalidates the Bot Item identity, unanswered event and exact decision index from the CLI', async () => {
