@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "session-board",
   "name": "セッションボード",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Botの仕事と通常セッションの状態をまとめて確認するサイドバー",
   "engines": {
     "orca": ">=1.4.277"
@@ -41,5 +41,23 @@
     }
   ],
   "publisher": "yoshhiide",
-  "license": "MIT"
+  "license": "MIT",
+  "cover": {
+    "path": "assets/cover.png",
+    "alt": "ダークテーマのセッションボード。入力待ち、作業中、完了の3列にBotの仕事、チャット、端末を表示。"
+  },
+  "screenshots": [
+    {
+      "path": "assets/list.png",
+      "alt": "Botの仕事と通常セッションを、入力待ち、作業中、完了の順にまとめたリスト。"
+    },
+    {
+      "path": "assets/board.png",
+      "alt": "ライトテーマのボード表示。入力待ち、作業中、完了を横並びにし、Botの仕事に返信ボタンを表示。"
+    },
+    {
+      "path": "assets/activity.png",
+      "alt": "入力待ちの詳細画面。Botからの質問と選択肢、標準画面で回答するボタン、Activityの会話を表示。"
+    }
+  ]
 }
