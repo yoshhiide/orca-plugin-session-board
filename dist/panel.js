@@ -550,7 +550,7 @@ async function replyToItem(id, questionId, index) {
       const messages = {
         changed: t2("The Item changed. Review the latest details.", "\u72B6\u614B\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u5185\u5BB9\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
         "accessibility-required": t2("To open the reply, allow Orca Computer Use in macOS Accessibility settings.", "\u8FD4\u4FE1\u753B\u9762\u3092\u958B\u304F\u306B\u306F\u3001macOS\u306E\u30A2\u30AF\u30BB\u30B7\u30D3\u30EA\u30C6\u30A3\u8A2D\u5B9A\u3067Orca Computer Use\u3092\u8A31\u53EF\u3057\u3066\u304F\u3060\u3055\u3044\u3002"),
-        "bot-home-unavailable": t2("Could not open the Bot Home. Show the Bot in the sidebar and try again.", "Bot\u306E\u30DB\u30FC\u30E0\u3092\u958B\u3051\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30B5\u30A4\u30C9\u30D0\u30FC\u306BBot\u3092\u8868\u793A\u3057\u3066\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002")
+        "bot-home-unavailable": t2("Could not verify that the Bot\u2019s Home opened. Open the target Bot\u2019s Home Chat and try again.", "\u5BFE\u8C61Bot\u306E\u30DB\u30FC\u30E0\u304C\u958B\u3044\u305F\u3053\u3068\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u5BFE\u8C61Bot\u306EHome Chat\u3092\u958B\u3044\u3066\u304B\u3089\u518D\u8A66\u884C\u3057\u3066\u304F\u3060\u3055\u3044\u3002")
       };
       const message = result.reason ? messages[result.reason] : t2("Could not verify the reply composer in Orca.", "\u6A19\u6E96\u306E\u8FD4\u4FE1\u753B\u9762\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
       if (opened === id) loadDetail(id, questionId, message);

@@ -1023,15 +1023,6 @@ function parse(result, window) {
 function sameHome({ nodes }, bot) {
   return !!one(nodes.filter((node) => node.label === "button Open " + bot + "'s page" || node.label === "button " + bot + "\u306E\u30DA\u30FC\u30B8\u3092\u958B\u304F"));
 }
-function botHomeControl({ nodes }, bot) {
-  const collapsed = "button Unfold " + bot;
-  const marker = one(nodes.filter((node) => (node.label === "button (expanded) Fold " + bot || node.label === collapsed) && node.parent && nodes.some((sibling) => sibling.parent === node.parent && sibling.label === "text " + bot)));
-  if (!marker?.parent?.parent) return {};
-  if (marker.label === collapsed) return { unfold: marker };
-  const siblings = nodes.filter((node) => node.parent === marker.parent.parent);
-  const tab = siblings[siblings.indexOf(marker.parent) + 1];
-  return tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label) ? { tab } : {};
-}
 function homeBack({ nodes }) {
   return one(nodes.filter((node) => {
     if (node.label !== "button \u30DB\u30FC\u30E0" && node.label !== "button Home") return false;
@@ -1103,7 +1094,7 @@ function emptyComposer(state, scope) {
 function commentComposer(state, scope) {
   return one(state.nodes.filter((node) => under(node, scope) && /^text entry area \(settable\) (?:コメント|Comment)(?: |$)/.test(node.label) && !state.disabled.has(node.index)));
 }
-async function nativeReply(run, target, stillCurrent, signal) {
+async function nativeReply(run, target, stillCurrent, signal, openHome) {
   const deadline = Date.now() + 22e3;
   const active = () => !signal.aborted && Date.now() < deadline;
   const permission = await run("computer", "permissions");
@@ -1138,15 +1129,7 @@ async function nativeReply(run, target, stillCurrent, signal) {
   if (!active() || !await stillCurrent()) return false;
   let state = await read();
   if (!sameHome(state, target.bot)) {
-    let control2 = botHomeControl(state, target.bot);
-    if (control2.unfold) {
-      if (!await press(state, control2.unfold)) return "bot-home-unavailable";
-      const expanded = await waitFor((view) => !!botHomeControl(view, target.bot).tab);
-      if (!expanded) return "bot-home-unavailable";
-      state = expanded;
-      control2 = botHomeControl(state, target.bot);
-    }
-    if (!await press(state, control2.tab)) return "bot-home-unavailable";
+    if (!active() || !await openHome()) return "bot-home-unavailable";
     const home = await waitFor((view) => sameHome(view, target.bot));
     if (!home) return "bot-home-unavailable";
     state = home;
@@ -1366,7 +1349,7 @@ var stop;
 function openBotHome(bot, signal) {
   if (process.platform !== "darwin" || signal.aborted) return Promise.resolve(false);
   return new Promise((resolve2) => {
-    execFile3("/usr/bin/open", ["-b", "com.stablyai.orca", "orca://bot/" + bot], {
+    execFile3("/usr/bin/open", ["-g", "-b", "com.stablyai.orca", "orca://bot/" + bot], {
       timeout: 3e3,
       signal
     }, (error) => resolve2(!error));
@@ -1478,16 +1461,17 @@ function setupWorker(orca, run, interval = 15e3, openBot = openBotHome, clock = 
   orca.panels.handle("board.detail", async ({ id, questionId }) => JSON.parse(JSON.stringify(await monitor.detail(id, questionId))));
   orca.panels.handle("board.reply", async ({ id, questionId, index }, { signal }) => {
     const row = monitor.board().rows.find((item) => item.id === id);
-    if (replying || stopped || signal.aborted || !row || row.stale || !row.bot) return { opened: false };
+    const botId = row?.bot;
+    if (replying || stopped || signal.aborted || !row || row.stale || !botId) return { opened: false };
     replying = true;
     try {
       const data = await run("bot", "list");
       const bots = list(data.bots);
       const target = await readItemReplyTarget(run, row, questionId, index);
       if (target === "choose" || target === "changed") return { opened: false, reason: target };
-      if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === row.bot).length !== 1 || !bots.some((bot) => bot.id === row.bot && bot.name === target.bot && bot.server == null)) return { opened: false };
+      if (!target || !Array.isArray(data.unreachable) || data.unreachable.length || bots.filter((bot) => bot.name === target.bot || bot.id === botId).length !== 1 || !bots.some((bot) => bot.id === botId && bot.name === target.bot && bot.server == null)) return { opened: false };
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) && JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target);
-      const result = await nativeReply(run, target, stillCurrent, signal);
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal));
       if (typeof result === "string") return { opened: result === "read-only", reason: result };
       return { opened: result };
     } catch (error) {

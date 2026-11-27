@@ -290,7 +290,7 @@ async function replyToItem(id: string, questionId?: string, index?: number) {
       const messages = {
         changed: t('The Item changed. Review the latest details.', '状態が変わりました。内容を確認してください。'),
         'accessibility-required': t('To open the reply, allow Orca Computer Use in macOS Accessibility settings.', '返信画面を開くには、macOSのアクセシビリティ設定でOrca Computer Useを許可してください。'),
-        'bot-home-unavailable': t('Could not open the Bot Home. Show the Bot in the sidebar and try again.', 'Botのホームを開けませんでした。サイドバーにBotを表示して再試行してください。')
+        'bot-home-unavailable': t('Could not verify that the Bot’s Home opened. Open the target Bot’s Home Chat and try again.', '対象Botのホームが開いたことを確認できませんでした。対象BotのHome Chatを開いてから再試行してください。')
       }
       const message = result.reason ? messages[result.reason] : t('Could not verify the reply composer in Orca.', '標準の返信画面を確認できませんでした。')
       if (opened === id) loadDetail(id, questionId, message)

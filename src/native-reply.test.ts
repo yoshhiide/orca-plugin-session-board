@@ -14,9 +14,16 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, foldedBot = false, duplicateBot = false, missingFocus = false} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false} = {}) {
   const presses: string[] = []
-  let page = foldedBot ? -2 : 0
+  let page = 0
+  let onTarget = !otherBot
+  let opens = 0
+  const openHome = async () => {
+    opens++
+    if (!wrongHome && !openFailed) onTarget = true
+    return !openFailed
+  }
   let reads = 0
   const tree = (...lines: string[]) => lines.map(line => {
     const match = /^( +)(.*)$/.exec(line)!
@@ -37,19 +44,11 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
       app:{bundleId:app}, window:{id:1,isOffscreen:false,isMinimized:false},
       truncation:{truncated:false}, disabledElementIndexes:[51], focusedElementId:page === 3 && !missingFocus ? 50 : null,
       treeText:tree(
-        page < 0 ? " 1 button Open Other Bot's page" : " 1 button Open 見本Bot's page",
-        ...(foldedBot ? [
-          ' 60 container',
-          '  61 container',
-          '   62 text 見本Bot',
-          page === -2 ? '   63 button Unfold 見本Bot' : '   63 button (expanded) Fold 見本Bot',
-          ...(page === -2 ? [] : ['  64 button Home Chat · now']),
-          ...(duplicateBot ? ['  65 container', '   66 text 見本Bot', '   67 button Unfold 見本Bot'] : [])
-        ] : []),
+        onTarget ? " 1 button Open 見本Bot's page" : " 1 button Open Other Bot's page",
         ' 2 container',
         '  3 button ホーム, 要対応 2 件',
         '  4 button セッションボード',
-        ...(page <= 0 ? [] : page === 1 ? [
+        ...(page === 0 ? [] : page === 1 ? [
           '  5 container',
           '   53 text 見本Bot',
           '   54 pop up button Edit bot picture',
@@ -86,72 +85,76 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
       )
     }}
   }
-  return {presses, run, current:async () => ++reads < 2 || !stale}
+  return {presses, run, openHome, opens:() => opens, current:async () => ++reads < 2 || !stale}
 }
 
 test('uses a numbered item and binds only the second question, then confirms Replying to and focus', async () => {
-  const {run, current, presses} = fixture()
-  assert.equal(await nativeReply(run, target, current, new AbortController().signal), true)
+  const {run, current, presses, openHome} = fixture()
+  assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), true)
   assert.deepEqual(presses, ['3', '7', '25'])
 })
 
-test('opens the folded owning Bot before replying or binding the selected question', async () => {
+test('opens the exact Bot Home before replying, even with no Bot rows', async () => {
   for (const [reply, status, focus] of [
     [target, 'Needs you', '25'],
     [{bot:target.bot, number:target.number, title:target.title, state:'done', snoozed:false}, 'Done', '50']
   ] as const) {
-    const {run, current, presses} = fixture({foldedBot:true, status})
-    assert.equal(await nativeReply(run, reply, current, new AbortController().signal), true)
-    assert.deepEqual(presses, ['63', '64', '3', '7', focus])
+    const {run, current, presses, openHome, opens} = fixture({otherBot:true, status})
+    assert.equal(await nativeReply(run, reply, current, new AbortController().signal, openHome), true)
+    assert.equal(opens(), 1)
+    assert.deepEqual(presses, ['3', '7', focus])
   }
 })
 
-test('leaves indistinguishable Bot headers untouched', async () => {
-  const {run, current, presses} = fixture({foldedBot:true, duplicateBot:true})
-  assert.equal(await nativeReply(run, target, current, new AbortController().signal), 'bot-home-unavailable')
-  assert.deepEqual(presses, [])
+test('does not touch the other Bot when its Home cannot be replaced and verified', async () => {
+  for (const state of [{wrongHome:true}, {openFailed:true}]) {
+    const {run, current, presses, openHome, opens} = fixture({otherBot:true, ...state})
+    assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), 'bot-home-unavailable')
+    assert.equal(opens(), 1)
+    assert.deepEqual(presses, [])
+  }
 })
 
 test('matches an unlabeled native Home detail using its toolbar and back button', async () => {
-  const {run, current, presses} = fixture({anonymousHome:true})
-  assert.equal(await nativeReply(run, target, current, new AbortController().signal), true)
+  const {run, current, presses, openHome} = fixture({anonymousHome:true})
+  assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), true)
   assert.deepEqual(presses, ['3', '7', '25'])
 })
 
 test('never presses immediate reply buttons on a single-question card', async () => {
-  const {run, current, presses} = fixture({plain:true})
-  assert.equal(await nativeReply(run, target, current, new AbortController().signal), true)
+  const {run, current, presses, openHome} = fixture({plain:true})
+  assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), true)
   assert.deepEqual(presses, ['3', '7', '25'])
 })
 
 test('refuses replaced, ambiguous, held, drafted and mismatched native reply targets', async () => {
   for (const failure of [{wrongCard:true}, {picked:true}, {draft:true}, {ambiguous:true}, {stale:true}]) {
-    const {run, current, presses} = fixture(failure)
-    assert.equal(await nativeReply(run, target, current, new AbortController().signal), false)
+    const {run, current, presses, openHome} = fixture(failure)
+    assert.equal(await nativeReply(run, target, current, new AbortController().signal, openHome), false)
     assert.deepEqual(presses, ['3', '7'])
   }
 })
 
 test('opens the normal composer without writing or binding a past question', async () => {
   for (const [state, status] of [['working','In progress'], ['done','Done'], ['cancelled','Canceled']] as const) {
-    const {run, current, presses} = fixture({status,draft:true})
+    const {run, current, presses, openHome} = fixture({status,draft:true})
     const {bot,number,title} = target
-    assert.equal(await nativeReply(run, {bot,number,title,state,snoozed:false}, current, new AbortController().signal), true)
+    assert.equal(await nativeReply(run, {bot,number,title,state,snoozed:false}, current, new AbortController().signal, openHome), true)
     assert.deepEqual(presses, ['3', '7', '50'])
   }
 })
 
 test('reports a verified native item without an editable composer', async () => {
-  const {run, current, presses} = fixture({status:'Done',readOnly:true})
+  const {run, current, presses, openHome} = fixture({status:'Done',readOnly:true})
   const {bot,number,title} = target
-  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal), 'read-only')
+  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal, openHome), 'read-only')
   assert.deepEqual(presses, ['3', '7'])
 })
 
 test('does not report success if AXPress does not focus the normal reply composer', async () => {
-  const {run, current, presses} = fixture({status:'Done', missingFocus:true})
+  const {run, current, presses, openHome} = fixture({status:'Done', missingFocus:true})
   const {bot,number,title} = target
-  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal), false)
+  assert.equal(await nativeReply(run, {bot,number,title,state:'done',snoozed:false}, current, new AbortController().signal, openHome), false)
   assert.deepEqual(presses, ['3', '7', '50'])
 })
 

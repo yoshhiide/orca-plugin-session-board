@@ -62,19 +62,6 @@ function sameHome({nodes}: AxState, bot: string): boolean {
     node.label === 'button ' + bot + 'のページを開く'))
 }
 
-function botHomeControl({nodes}: AxState, bot: string): {unfold?: AxNode; tab?: AxNode} {
-  const collapsed = 'button Unfold ' + bot
-  const marker = one(nodes.filter(node => (node.label === 'button (expanded) Fold ' + bot || node.label === collapsed) &&
-    node.parent && nodes.some(sibling => sibling.parent === node.parent && sibling.label === 'text ' + bot)))
-  if (!marker?.parent?.parent) return {}
-  if (marker.label === collapsed) return {unfold:marker}
-  // The sidebar places the Home Chat immediately after its owning Bot header.
-  // The header is selected by name, and the active Bot identity is read back after opening.
-  const siblings = nodes.filter(node => node.parent === marker.parent!.parent)
-  const tab = siblings[siblings.indexOf(marker.parent) + 1]
-  return tab && /^button (?:\(expanded\) )?Home Chat(?: · .+)?$/.test(tab.label) ? {tab} : {}
-}
-
 function homeBack({nodes}: AxState): AxNode | undefined {
   return one(nodes.filter(node => {
     if (node.label !== 'button ホーム' && node.label !== 'button Home') return false
@@ -172,7 +159,8 @@ function commentComposer(state: AxState, scope: AxNode): AxNode | undefined {
 }
 
 export async function nativeReply(
-  run: Cli, target: NativeTarget, stillCurrent: () => Promise<boolean>, signal: AbortSignal
+  run: Cli, target: NativeTarget, stillCurrent: () => Promise<boolean>, signal: AbortSignal,
+  openHome: () => Promise<boolean>
 ): Promise<boolean | 'read-only' | NativeReplyIssue> {
   const deadline = Date.now() + 22_000
   const active = () => !signal.aborted && Date.now() < deadline
@@ -202,15 +190,7 @@ export async function nativeReply(
   if (!active() || !await stillCurrent()) return false
   let state = await read()
   if (!sameHome(state, target.bot)) {
-    let control = botHomeControl(state, target.bot)
-    if (control.unfold) {
-      if (!await press(state, control.unfold)) return 'bot-home-unavailable'
-      const expanded = await waitFor(view => !!botHomeControl(view, target.bot).tab)
-      if (!expanded) return 'bot-home-unavailable'
-      state = expanded
-      control = botHomeControl(state, target.bot)
-    }
-    if (!await press(state, control.tab)) return 'bot-home-unavailable'
+    if (!active() || !await openHome()) return 'bot-home-unavailable'
     const home = await waitFor(view => sameHome(view, target.bot))
     if (!home) return 'bot-home-unavailable'
     state = home

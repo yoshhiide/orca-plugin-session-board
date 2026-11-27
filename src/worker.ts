@@ -170,7 +170,7 @@ let stop: (() => void) | undefined
 function openBotHome(bot: string, signal: AbortSignal): Promise<boolean> {
   if (process.platform !== 'darwin' || signal.aborted) return Promise.resolve(false)
   return new Promise(resolve => {
-    execFile('/usr/bin/open', ['-b', 'com.stablyai.orca', 'orca://bot/' + bot], {
+    execFile('/usr/bin/open', ['-g', '-b', 'com.stablyai.orca', 'orca://bot/' + bot], {
       timeout:3000, signal
     }, error => resolve(!error))
   })
@@ -287,7 +287,8 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
     JSON.parse(JSON.stringify(await monitor.detail(id, questionId))) as Detail)
   orca.panels.handle('board.reply', async ({id, questionId, index}, {signal}) => {
     const row = monitor.board().rows.find(item => item.id === id)
-    if (replying || stopped || signal.aborted || !row || row.stale || !row.bot) return {opened:false}
+    const botId = row?.bot
+    if (replying || stopped || signal.aborted || !row || row.stale || !botId) return {opened:false}
     replying = true
     try {
       const data = await run('bot', 'list')
@@ -295,11 +296,11 @@ export function setupWorker(orca: OrcaWorkerApi, run: Cli, interval = 15_000, op
       const target = await readItemReplyTarget(run, row, questionId, index)
       if (target === 'choose' || target === 'changed') return {opened:false,reason:target}
       if (!target || !Array.isArray(data.unreachable) || data.unreachable.length ||
-        bots.filter(bot => bot.name === target.bot || bot.id === row.bot).length !== 1 ||
-        !bots.some(bot => bot.id === row.bot && bot.name === target.bot && bot.server == null)) return {opened:false}
+        bots.filter(bot => bot.name === target.bot || bot.id === botId).length !== 1 ||
+        !bots.some(bot => bot.id === botId && bot.name === target.bot && bot.server == null)) return {opened:false}
       const stillCurrent = async () => !stopped && !signal.aborted && withinActivityWindow(row.at, clock()) &&
         JSON.stringify(await readItemReplyTarget(run, row, questionId, index)) === JSON.stringify(target)
-      const result = await nativeReply(run, target, stillCurrent, signal)
+      const result = await nativeReply(run, target, stillCurrent, signal, () => openBot(botId, signal))
       if (typeof result === 'string') return {opened:result === 'read-only',reason:result}
       return {opened:result}
     } catch (error) {
