@@ -14,7 +14,7 @@ const target: ReplyTarget = {
 const placeholder = 'Reply in your own words, or pick an option'
 const stamp = new Intl.DateTimeFormat('ja-JP', {dateStyle:'full', timeStyle:'long'}).format(at)
 
-function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false, freeText = false, alreadyBound = false, changedIndex = false, actionSnapshots = false, windows = [{id:1,isOffscreen:false,isMinimized:false}]} = {}) {
+function fixture({wrongCard = false, picked = false, draft = false, ambiguous = false, stale = false, plain = false, anonymousHome = false, status = 'Needs you', readOnly = false, otherBot = false, wrongHome = false, openFailed = false, missingFocus = false, collapsedGroup = false, freeText = false, alreadyBound = false, changedIndex = false, actionSnapshots = false, footerLocale = '', falseFooter = false, windows = [{id:1,isOffscreen:false,isMinimized:false}]} = {}) {
   const presses: string[] = []
   let page = 0
   let groupExpanded = !collapsedGroup
@@ -55,11 +55,17 @@ function fixture({wrongCard = false, picked = false, draft = false, ambiguous = 
     if (method !== 'action-snapshot') snapshots++
     const bound = alreadyBound || page === 3
     const empty = freeText && bound ? 'Reply to 見本Bot…' : placeholder
+    const bot = onTarget ? '見本Bot' : 'Other Bot'
     return {snapshot:{
       app:{bundleId:app}, window:{id:1,isOffscreen:false,isMinimized:false},
       truncation:{truncated:false}, disabledElementIndexes:[51], focusedElementId:page === 3 && !missingFocus ? 50 : null,
       treeText:tree(
-        onTarget ? " 1 button Open 見本Bot's page" : " 1 button Open Other Bot's page",
+        ...(footerLocale ? [
+          ' 60 container',
+          '  61 text entry area (settable) Ask anything, @ to mention bots or files, / for commands',
+          '  62 button ' + (footerLocale === 'ja' ? bot + ' をコピー' : 'Copy ' + bot),
+          ...(falseFooter ? [' 63 container','  64 button Copy 見本Bot'] : [])
+        ] : [" 1 button Open " + bot + "'s page"]),
         ' 2 container',
         '  3 button ホーム, 要対応 2 件',
         '  4 button セッションボード',
@@ -127,6 +133,15 @@ test('opens the exact Bot Home before replying, even with no Bot rows', async ()
     assert.equal(await nativeReply(run, reply, current, new AbortController().signal, openHome), true)
     assert.equal(opens(), 1)
     assert.deepEqual(presses, ['3', '7', focus])
+  }
+})
+
+test('reads the active Bot from the native composer footer and ignores a matching button elsewhere', async () => {
+  for (const footerLocale of ['ja','en']) {
+    const {run,current,openHome,presses,opens} = fixture({footerLocale,otherBot:true,falseFooter:true})
+    assert.equal(await nativeReply(run,target,current,new AbortController().signal,openHome),true)
+    assert.equal(opens(),1)
+    assert.deepEqual(presses,['3','7','25'])
   }
 })
 

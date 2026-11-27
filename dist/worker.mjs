@@ -1031,6 +1031,12 @@ function parse(result, window) {
   return { nodes, focused: String(snapshot.focusedElementId), disabled: new Set(snapshot.disabledElementIndexes.map(String)) };
 }
 function sameHome({ nodes }, bot) {
+  const composers = new Set(nodes.filter((node) => /^text entry area \(settable\) Ask anything, @ to mention bots or files, \/ for commands\b/.test(node.label)).map((node) => node.parent).filter(Boolean));
+  const footers = nodes.filter((node) => composers.has(node.parent) && (node.label.startsWith("button Copy ") || /^button .+ をコピー$/.test(node.label)));
+  if (footers.length) {
+    const footer = one(footers)?.label;
+    return footer === "button Copy " + bot || footer === "button " + bot + " \u3092\u30B3\u30D4\u30FC";
+  }
   return !!one(nodes.filter((node) => node.label === "button Open " + bot + "'s page" || node.label === "button " + bot + "\u306E\u30DA\u30FC\u30B8\u3092\u958B\u304F"));
 }
 function homeBack({ nodes }) {

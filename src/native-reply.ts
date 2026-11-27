@@ -60,6 +60,15 @@ function parse(result: Awaited<ReturnType<Cli>>, window: number): AxState {
 }
 
 function sameHome({nodes}: AxState, bot: string): boolean {
+  // Newer Orca builds name the active Bot in the native chat composer's footer.
+  const composers = new Set(nodes.filter(node => /^text entry area \(settable\) Ask anything, @ to mention bots or files, \/ for commands\b/.test(node.label))
+    .map(node => node.parent).filter(Boolean))
+  const footers = nodes.filter(node => composers.has(node.parent) &&
+    (node.label.startsWith('button Copy ') || /^button .+ をコピー$/.test(node.label)))
+  if (footers.length) {
+    const footer = one(footers)?.label
+    return footer === 'button Copy ' + bot || footer === 'button ' + bot + ' をコピー'
+  }
   return !!one(nodes.filter(node => node.label === "button Open " + bot + "'s page" ||
     node.label === 'button ' + bot + 'のページを開く'))
 }
